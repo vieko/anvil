@@ -2,6 +2,7 @@ import type { AgentTool, ExecutionEnv, Session, SessionRepo, ThinkingLevel } fro
 import { AgentHarness, InMemorySessionRepo } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import type { Agent, AgentDispatch, AgentResult, Effort, ModelEffort } from "../index.ts";
+import { defaultTools } from "./tools.ts";
 
 /** Resolve anvil's (model, effort) to a concrete pi-ai Model. The provider-agnostic seam. */
 export type ModelResolver = (config: ModelEffort) => Model<any>;
@@ -15,7 +16,7 @@ export interface PiAgentOptions {
 	env: ExecutionEnv;
 	/** Map anvil's (model, effort) to a pi-ai Model. Keeps PiAgent provider-agnostic. */
 	resolveModel: ModelResolver;
-	/** Tools the agent may call. Default: none — inject anvil's read/edit/bash. */
+	/** Tools the agent may call. Default: anvil's read/edit/write/bash over `env`. Pass `[]` to disable. */
 	tools?: AgentTool[];
 	/** System prompt. Default: a minimal outcome-focused prompt. */
 	systemPrompt?: string;
@@ -71,7 +72,7 @@ export class PiAgent implements Agent {
 			env: this.options.env,
 			session,
 			model,
-			tools: this.options.tools,
+			tools: this.options.tools ?? defaultTools(this.options.env),
 			systemPrompt: this.options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
 			getApiKeyAndHeaders: this.options.getApiKeyAndHeaders ?? defaultGetApiKey,
 			thinkingLevel: (this.options.thinkingLevel ?? defaultThinkingLevel)(d.config.effort),

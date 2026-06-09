@@ -19,4 +19,5 @@ export {
 	type PackageManager,
 } from "./command-gate.ts";
 export { type ApiKeyResolver, type ModelResolver, PiAgent, type PiAgentOptions } from "./pi-agent.ts";
+export { createBashTool, createEditTool, createReadTool, createWriteTool, defaultTools } from "./tools.ts";
 export { WorktreeWorkspace, type WorktreeWorkspaceOptions } from "./worktree-workspace.ts";

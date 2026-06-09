@@ -143,9 +143,13 @@ Track A (build — the spine is settled, needs no usage data):
   carries an `error` field so the gate can tell "ran and failed" from "could not
   run". `PiAgent` (the `Agent` seam over pi's `AgentHarness.prompt()`) has landed,
   faux-provider tested (no network/key); it is provider-agnostic via an injected
-  `resolveModel` and takes injectable tools. *Next:* anvil's own read/edit/bash
-  tools over the `ExecutionEnv` (needs typebox schemas) to give the agent hands,
-  then a real end-to-end `runToGate` over the three node seams.
+  `resolveModel` and takes injectable tools. anvil's own read/edit/write/bash
+  tools (over the `ExecutionEnv`, via typebox) have landed: lean and headless
+  (no TUI/highlight/image deps), with a contract that matches what coding models
+  expect (batch exact-unique-match edit, head/tail truncation) cribbed from pi's
+  tools but reimplemented as ours. PiAgent defaults to these, so the worker has
+  hands. *Next:* a real end-to-end `runToGate` over the three node seams (faux
+  model scripted to call a tool -> real worktree edit -> real gate -> commit).
 - **A4** — route forge's `run <spec>` common case through the engine at parity.
 
 Track B (measure → cut, runs in parallel, gates only the deletions): query
