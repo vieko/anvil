@@ -147,9 +147,19 @@ export interface RunRecord {
 	updatedAt: string;
 }
 
-/** Persistence seam — every transition is written here. The default is in-memory; node provides SQLite. */
+/**
+ * Persistence seam — a {@link RunRecord} is written at every state transition.
+ * `load` lets `runToGate({ resume: true })` continue a crashed run; `list` backs
+ * status queries. Both are optional: a write-only sink (e.g. an audit log) is a
+ * valid persister, but resume requires `load`. In-memory: `MemoryStatePersister`
+ * (pure, `@anvil/core`). Durable: `FileStatePersister` (`@anvil/core/node`).
+ */
 export interface StatePersister {
 	save(record: RunRecord): Promise<void>;
+	/** Latest record for an outcome, or null. */
+	load?(outcomeId: string): Promise<RunRecord | null>;
+	/** Latest record per outcome, newest first. */
+	list?(): Promise<RunRecord[]>;
 }
 
 /** Escalation seam — a pure function mapping (base config, attempt) to the config to dispatch. */

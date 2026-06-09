@@ -3,5 +3,6 @@
 // pi-backed Agent, child_process Gate) live behind "@anvil/core/node".
 
 export * from "./escalation.ts";
+export * from "./persistence.ts";
 export * from "./run-to-gate.ts";
 export * from "./types.ts";

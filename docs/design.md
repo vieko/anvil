@@ -172,9 +172,12 @@ Track A (build — the spine is settled, needs no usage data):
   `provider:model-id` to a concrete pi-ai Model; Anthropic-flavored defaults,
   fully overridable; PiAgent uses it by default, so a real run works given an
   `AI_GATEWAY_API_KEY` (anvil routes through the Vercel AI Gateway by default;
-  see §5). Remaining A4 pieces: a concrete node `StatePersister`
-  (crash-resumability — a simple file/SQLite store, or a bridge to forge's DB),
-  then the `forge run` wiring + parity tests.
+  see §5). Crash-resumability is also done: `MemoryStatePersister` (pure) and the
+  durable `FileStatePersister` (node, atomic per-outcome JSON), with
+  `runToGate({ resume: true })` returning terminal records immediately and
+  continuing a non-terminal one (reused session + rebuilt retry prompt).
+  Remaining A4 piece: the `forge run` wiring + parity tests (the switchover
+  criterion).
 
 Track B (measure → cut, runs in parallel, gates only the deletions): query
 forge's `runs` DB for sandbox / pipeline / dep-declaration / detach usage and

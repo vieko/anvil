@@ -31,6 +31,13 @@ export interface RunToGateDeps {
 export interface RunToGateOptions {
 	maxAttempts?: number;
 	signal?: AbortSignal;
+	/**
+	 * Resume a crashed/interrupted run from its last persisted record (requires
+	 * `persist.load`). A terminal record (passed/failed) returns immediately; a
+	 * non-terminal one continues from where it stopped, reusing the agent session
+	 * and rebuilding the retry prompt. The caller must supply the same workspace.
+	 */
+	resume?: boolean;
 }
 
 export interface RunToGateResult {
@@ -91,11 +98,37 @@ export async function runToGate(
 			maxAttempts,
 			config,
 			sessionId,
+			errors: lastErrors,
 			updatedAt: new Date().toISOString(),
 			...extra,
 		});
 
-	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+	let startAttempt = 0;
+	if (options.resume && persist.load) {
+		const prev = await persist.load(outcome.id);
+		if (prev?.state === "passed") {
+			return { outcomeId: outcome.id, passed: true, attempts: prev.attempt + 1, finalConfig: prev.config };
+		}
+		if (prev?.state === "failed") {
+			return {
+				outcomeId: outcome.id,
+				passed: false,
+				attempts: prev.maxAttempts,
+				finalConfig: prev.config,
+				errors: prev.errors,
+			};
+		}
+		if (prev) {
+			// Non-terminal: a `retrying` record means that attempt is done (continue
+			// at the next one); `running`/`verifying` means redo it from the agent step.
+			sessionId = prev.sessionId;
+			lastErrors = prev.errors;
+			startAttempt = prev.state === "retrying" ? prev.attempt + 1 : prev.attempt;
+			if (lastErrors) prompt = buildRetryPrompt(outcome.prompt, lastErrors, startAttempt, maxAttempts);
+		}
+	}
+
+	for (let attempt = startAttempt; attempt < maxAttempts; attempt++) {
 		if (options.signal?.aborted) break;
 		const config = escalate(base, attempt);
 
@@ -108,7 +141,7 @@ export async function runToGate(
 
 		if (result.passed) {
 			await workspace.commit(`anvil: ${outcome.id}`);
-			await record("passed", attempt, config, { usage: dispatch.usage });
+			await record("passed", attempt, config, { usage: dispatch.usage, errors: undefined });
 			return { outcomeId: outcome.id, passed: true, attempts: attempt + 1, finalConfig: config };
 		}
 
