@@ -166,8 +166,10 @@ Track A (build — the spine is settled, needs no usage data):
   with only the model faked: a faux response calls the real `write` tool, which
   mutates a real git worktree, which the real gate verifies via real shell exec,
   which commits on pass — including the fail-then-retry-then-pass path.
-- **A4** — *next.* Route forge's `run <spec>` common case through the engine at
-  parity. Model resolution is settled: `createModelResolver()` maps anvil's
+- **A4** — *next.* Build anvil's first-class CLI. anvil is forge's **successor**
+  (a focused rewrite), not a library forge consumes — `anvil run` covers forge's
+  `run <spec>` common case at parity, proven by ported forge tests. Model
+  resolution is settled: `createModelResolver()` maps anvil's
   logical names (the aliases the ladder emits — sonnet/opus/haiku) and any
   `provider:model-id` to a concrete pi-ai Model; Anthropic-flavored defaults,
   fully overridable; PiAgent uses it by default, so a real run works given an
@@ -176,8 +178,9 @@ Track A (build — the spine is settled, needs no usage data):
   durable `FileStatePersister` (node, atomic per-outcome JSON), with
   `runToGate({ resume: true })` returning terminal records immediately and
   continuing a non-terminal one (reused session + rebuilt retry prompt).
-  Remaining A4 piece: the `forge run` wiring + parity tests (the switchover
-  criterion).
+  Remaining A4 piece: the CLI surface itself (`packages/cli`, `@anvil/cli`:
+  `anvil run`/`status`, then `resume`) over the finished engine, with parity
+  proven by ported forge tests.
 
 Track B (measure → cut, runs in parallel, gates only the deletions): query
 forge's `runs` DB for sandbox / pipeline / dep-declaration / detach usage and
@@ -189,10 +192,14 @@ selection layer is added only on evidence.
 
 ## 8. Switchover criterion
 
-The engine "wins" when `forge run <spec>` — the 80% common case — flows through
-`runToGate` with behavior parity, proven by ported tests. That is the moment to
-decide the convergence shape (forge's CLI becomes a thin consumer of
-`@anvil/core`, or anvil grows its own minimal CLI). Not before.
+anvil is forge's **successor** — a focused rewrite with a first-class CLI — not a
+library forge consumes. Forge stays frozen as the **reference oracle**: we mine
+its gate/verify and worktree edge-case tests, but nothing routes *through* it.
+
+The engine "wins" when `anvil run <spec>` — the 80% common case forge served —
+runs at behavior parity, proven by ported forge tests. The CLI is a thin surface
+(`packages/cli`, `@anvil/cli`) over the finished `runToGate` engine; the engine
+itself does not change to get there.
 
 ## 9. Non-goals
 

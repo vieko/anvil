@@ -1,0 +1,26 @@
+{
+  "name": "@anvil/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "anvil's first-class CLI: define an outcome, the agent works, a deterministic gate decides done.",
+  "bin": {
+    "anvil": "./dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@anvil/core": "*"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

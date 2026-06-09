@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "clean": "npm run clean --workspaces --if-present",
-    "build": "npm run build --workspace @anvil/core",
+    "build": "npm run build --workspace @anvil/core && npm run build --workspace @anvil/cli",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
