@@ -2,6 +2,7 @@ import type { AgentTool, ExecutionEnv, Session, SessionRepo, ThinkingLevel } fro
 import { AgentHarness, InMemorySessionRepo } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import type { Agent, AgentDispatch, AgentResult, Effort, ModelEffort } from "../index.ts";
+import { createModelResolver } from "./model-resolver.ts";
 import { defaultTools } from "./tools.ts";
 
 /** Resolve anvil's (model, effort) to a concrete pi-ai Model. The provider-agnostic seam. */
@@ -14,8 +15,8 @@ export type ApiKeyResolver = (
 export interface PiAgentOptions {
 	/** Execution environment the agent operates in (e.g. `WorktreeWorkspace.env`). */
 	env: ExecutionEnv;
-	/** Map anvil's (model, effort) to a pi-ai Model. Keeps PiAgent provider-agnostic. */
-	resolveModel: ModelResolver;
+	/** Map anvil's (model, effort) to a pi-ai Model. Default: {@link createModelResolver}(). */
+	resolveModel?: ModelResolver;
 	/** Tools the agent may call. Default: anvil's read/edit/write/bash over `env`. Pass `[]` to disable. */
 	tools?: AgentTool[];
 	/** System prompt. Default: a minimal outcome-focused prompt. */
@@ -54,16 +55,18 @@ const DEFAULT_SYSTEM_PROMPT =
 export class PiAgent implements Agent {
 	private readonly options: PiAgentOptions;
 	private readonly repo: SessionRepo;
+	private readonly resolveModel: ModelResolver;
 	/** Sessions created by this agent, so a `resume` continues the same transcript. */
 	private readonly sessions = new Map<string, Session>();
 
 	constructor(options: PiAgentOptions) {
 		this.options = options;
 		this.repo = options.sessionRepo ?? new InMemorySessionRepo();
+		this.resolveModel = options.resolveModel ?? createModelResolver();
 	}
 
 	async dispatch(d: AgentDispatch): Promise<AgentResult> {
-		const model = this.options.resolveModel(d.config);
+		const model = this.resolveModel(d.config);
 		const session = await this.resolveSession(d.resume);
 		const sessionId = (await session.getMetadata()).id;
 		this.sessions.set(sessionId, session);

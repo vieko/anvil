@@ -18,6 +18,7 @@ export {
 	type GateCommand,
 	type PackageManager,
 } from "./command-gate.ts";
+export { createModelResolver, DEFAULT_MODEL_ALIASES, type ModelResolverOptions } from "./model-resolver.ts";
 export { type ApiKeyResolver, type ModelResolver, PiAgent, type PiAgentOptions } from "./pi-agent.ts";
 export { createBashTool, createEditTool, createReadTool, createWriteTool, defaultTools } from "./tools.ts";
 export { WorktreeWorkspace, type WorktreeWorkspaceOptions } from "./worktree-workspace.ts";

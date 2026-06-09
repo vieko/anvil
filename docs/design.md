@@ -153,8 +153,13 @@ Track A (build — the spine is settled, needs no usage data):
   mutates a real git worktree, which the real gate verifies via real shell exec,
   which commits on pass — including the fail-then-retry-then-pass path.
 - **A4** — *next.* Route forge's `run <spec>` common case through the engine at
-  parity. Open question to settle first: model resolution (the `resolveModel`
-  seam) — anvil needs a concrete (provider, model-id) mapping for real runs.
+  parity. Model resolution is settled: `createModelResolver()` maps anvil's
+  logical names (the aliases the ladder emits — sonnet/opus/haiku) and any
+  `provider:model-id` to a concrete pi-ai Model; Anthropic-flavored defaults,
+  fully overridable; PiAgent uses it by default, so a real run works given an
+  `ANTHROPIC_API_KEY`. Remaining A4 pieces: a concrete node `StatePersister`
+  (crash-resumability — a simple file/SQLite store, or a bridge to forge's DB),
+  then the `forge run` wiring + parity tests.
 
 Track B (measure → cut, runs in parallel, gates only the deletions): query
 forge's `runs` DB for sandbox / pipeline / dep-declaration / detach usage and
