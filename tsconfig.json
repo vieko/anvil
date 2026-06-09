@@ -4,7 +4,7 @@
     "noEmit": true,
     "paths": {
       "@anvil/core": ["./packages/core/src/index.ts"],
-      "@anvil/core/node": ["./packages/core/src/node.ts"],
+      "@anvil/core/node": ["./packages/core/src/node/index.ts"],
       "@anvil/core/*": ["./packages/core/src/*"]
     }
   },

@@ -133,9 +133,16 @@ Track A (build — the spine is settled, needs no usage data):
 - **A1** — this design doc. ✔
 - **A2** — `runToGate` test-first against fakes. *(walking skeleton landed; full
   matrix — stall detection, budget cap, inconclusive accounting — ongoing.)*
-- **A3** — harden the gate (clean-env execution, non-bypassability,
-  flake-resistance, actionable errors) and wire the node seams (`PiAgent`,
-  `WorktreeWorkspace`, `CommandGate`).
+- **A3** — harden the gate + wire the node seams. *In progress:*
+  `WorktreeWorkspace` (git worktree on a pi `NodeExecutionEnv`) and `CommandGate`
+  (clean-env execution via per-command `env`; flake-resistance — fail-then-pass
+  is inconclusive not a hard failure, can't-run is inconclusive not failure, a
+  real repeatable failure dominates; actionable per-command errors) have landed
+  with tests (real-git integration for the workspace, fakes for the gate). The
+  `.`/`./node` purity boundary is enforced by `test/boundary.test.ts`. `ExecResult`
+  carries an `error` field so the gate can tell "ran and failed" from "could not
+  run". *Next:* `PiAgent` (wrap pi `AgentHarness.prompt()`) + anvil's own
+  read/edit/bash tools over the `ExecutionEnv`.
 - **A4** — route forge's `run <spec>` common case through the engine at parity.
 
 Track B (measure → cut, runs in parallel, gates only the deletions): query

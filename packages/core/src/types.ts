@@ -60,14 +60,31 @@ export interface Agent {
 // Isolation + command execution. Under "@anvil/core/node" this is a pi
 // ExecutionEnv (FileSystem & Shell) pointed at a git worktree.
 
+/**
+ * Why a command could not be run to completion. Mirrors pi's ExecutionErrorCode.
+ * The gate treats any of these as inconclusive (environment/flake), never as a
+ * real, fixable failure.
+ */
+export type ExecError = "aborted" | "timeout" | "shell_unavailable" | "spawn_error" | "callback_error" | "unknown";
+
 export interface ExecResult {
 	stdout: string;
 	stderr: string;
+	/** Process exit code. -1 when the command could not be run (see {@link error}). */
 	exitCode: number;
+	/**
+	 * Set when the command could not be run to completion (timeout, spawn failure,
+	 * abort, ...). The crucial distinction for flake-resistance:
+	 *   - `error` unset + exitCode !== 0  =>  a REAL failure (actionable, fed back)
+	 *   - `error` set                     =>  the command could not run (env/flake)
+	 */
+	error?: ExecError;
 }
 
 export interface ExecOptions {
 	timeoutMs?: number;
+	/** Environment overrides for this command, layered over the workspace defaults. */
+	env?: Record<string, string>;
 	signal?: AbortSignal;
 }
 
@@ -75,6 +92,10 @@ export interface Workspace {
 	/** Absolute working directory the agent and gate operate in. */
 	readonly cwd: string;
 	exec(command: string, opts?: ExecOptions): Promise<ExecResult>;
+	/** Read a UTF-8 text file relative to {@link cwd}. Returns null when missing or unreadable. */
+	readText(path: string): Promise<string | null>;
+	/** True when the path exists relative to {@link cwd}. */
+	exists(path: string): Promise<boolean>;
 	/** Commit current changes. Returns false when there was nothing to commit. */
 	commit(message: string): Promise<boolean>;
 	cleanup(): Promise<void>;

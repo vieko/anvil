@@ -10,6 +10,12 @@ function fakeWorkspace(): Workspace & { committed: string[] } {
 		async exec() {
 			return { stdout: "", stderr: "", exitCode: 0 };
 		},
+		async readText() {
+			return null;
+		},
+		async exists() {
+			return false;
+		},
 		async commit(message: string) {
 			committed.push(message);
 			return true;
