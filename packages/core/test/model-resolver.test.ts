@@ -8,8 +8,8 @@ describe("createModelResolver", () => {
 		const resolve = createModelResolver();
 		const opus = resolve({ model: "opus" });
 		expect(opus.provider).toBe("vercel-ai-gateway");
-		expect(opus.id).toBe("anthropic/claude-opus-4.5");
-		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-4.5");
+		expect(opus.id).toBe("anthropic/claude-opus-4.8");
+		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-4.6");
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
 	});
 
@@ -37,7 +37,7 @@ describe("createModelResolver", () => {
 	it("supports custom aliases merged over the defaults", () => {
 		const resolve = createModelResolver({ aliases: { cheap: "anthropic:claude-haiku-4-5" } });
 		expect(resolve({ model: "cheap" }).id).toBe("claude-haiku-4-5");
-		expect(resolve({ model: "opus" }).id).toBe("anthropic/claude-opus-4.5"); // gateway defaults still present
+		expect(resolve({ model: "opus" }).id).toBe("anthropic/claude-opus-4.8"); // gateway defaults still present
 	});
 
 	it("accepts a concrete Model as an alias value", () => {

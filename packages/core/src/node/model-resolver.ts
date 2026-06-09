@@ -28,8 +28,8 @@ export interface ModelResolverOptions {
  */
 export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	haiku: "vercel-ai-gateway:anthropic/claude-haiku-4.5",
-	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-4.5",
-	opus: "vercel-ai-gateway:anthropic/claude-opus-4.5",
+	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-4.6",
+	opus: "vercel-ai-gateway:anthropic/claude-opus-4.8",
 };
 
 /**
