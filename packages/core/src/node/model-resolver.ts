@@ -18,14 +18,18 @@ export interface ModelResolverOptions {
 }
 
 /**
- * Default logical aliases. Anthropic-flavored because that is the dominant case
- * and what the escalation ladder's defaults assume (sonnet -> opus). Fully
- * overridable — anvil stays provider-agnostic through this resolver seam.
+ * Default logical aliases. anvil routes through the **Vercel AI Gateway** by
+ * default (one key across providers, with gateway-side spend/observability/
+ * fallbacks) — the logical names map to Anthropic's Claude tier on the gateway,
+ * which is also what the escalation ladder emits (sonnet -> opus). Fully
+ * overridable: anvil stays provider-agnostic through this resolver seam (e.g.
+ * `createModelResolver({ defaultProvider: "anthropic", aliases: {...} })` for
+ * direct provider access).
  */
 export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
-	haiku: "anthropic:claude-haiku-4-5",
-	sonnet: "anthropic:claude-sonnet-4-5",
-	opus: "anthropic:claude-opus-4-5",
+	haiku: "vercel-ai-gateway:anthropic/claude-haiku-4.5",
+	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-4.5",
+	opus: "vercel-ai-gateway:anthropic/claude-opus-4.5",
 };
 
 /**
@@ -42,7 +46,7 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
  */
 export function createModelResolver(options: ModelResolverOptions = {}): ModelResolver {
 	const aliases = options.replaceDefaults ? { ...options.aliases } : { ...DEFAULT_MODEL_ALIASES, ...options.aliases };
-	const defaultProvider = options.defaultProvider ?? "anthropic";
+	const defaultProvider = options.defaultProvider ?? "vercel-ai-gateway";
 	const cache = new Map<string, Model<any>>();
 
 	return ({ model }) => {

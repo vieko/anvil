@@ -106,6 +106,20 @@ evidence from a spike:
   than the Anthropic SDK's.
 - **provider-agnostic** (Anthropic / OpenAI / Google / Mistral / Bedrock / …)
   directly serves the cheap-base / strong-escalate thesis.
+
+### Default inference path: the Vercel AI Gateway
+
+anvil routes inference through the **Vercel AI Gateway** by default
+(`createModelResolver()`'s logical names — `sonnet`/`opus`/`haiku`, what the
+escalation ladder emits — map to `vercel-ai-gateway:anthropic/claude-*`). One
+key (`AI_GATEWAY_API_KEY`) across every provider makes cross-provider escalation
+trivial and gives gateway-side spend/observability/rate-limit/fallback handling
+— valuable for an engine that fans out many parallel agents. Key resolution
+delegates to pi-ai's own `getEnvApiKey` (every provider pi knows, plus Anthropic
+OAuth-token precedence), so we don't maintain a provider->env map. Provider
+neutrality is preserved by the seam: `createModelResolver({ defaultProvider:
+"anthropic", aliases: {...} })` (or a custom `resolveModel`/`getApiKeyAndHeaders`)
+switches to direct provider access.
 - first-class faux provider + memory session repo = deterministic tests.
 - `Result<T,E>`-everywhere, never-throw, abort-everywhere design aligns with
   "the most reliable engine" better than a throw-based SDK.
@@ -157,7 +171,8 @@ Track A (build — the spine is settled, needs no usage data):
   logical names (the aliases the ladder emits — sonnet/opus/haiku) and any
   `provider:model-id` to a concrete pi-ai Model; Anthropic-flavored defaults,
   fully overridable; PiAgent uses it by default, so a real run works given an
-  `ANTHROPIC_API_KEY`. Remaining A4 pieces: a concrete node `StatePersister`
+  `AI_GATEWAY_API_KEY` (anvil routes through the Vercel AI Gateway by default;
+  see §5). Remaining A4 pieces: a concrete node `StatePersister`
   (crash-resumability — a simple file/SQLite store, or a bridge to forge's DB),
   then the `forge run` wiring + parity tests.
 

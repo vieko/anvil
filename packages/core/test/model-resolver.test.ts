@@ -4,19 +4,29 @@ import { buildEscalationLadder } from "../src/index.ts";
 import { createModelResolver, DEFAULT_MODEL_ALIASES } from "../src/node/model-resolver.ts";
 
 describe("createModelResolver", () => {
-	it("resolves the default logical aliases to concrete anthropic models", () => {
+	it("defaults to the Vercel AI Gateway for the logical aliases", () => {
 		const resolve = createModelResolver();
 		const opus = resolve({ model: "opus" });
-		expect(opus.provider).toBe("anthropic");
-		expect(opus.id).toBe("claude-opus-4-5");
-		expect(resolve({ model: "sonnet" }).id).toBe("claude-sonnet-4-5");
-		expect(resolve({ model: "haiku" }).id).toBe("claude-haiku-4-5");
+		expect(opus.provider).toBe("vercel-ai-gateway");
+		expect(opus.id).toBe("anthropic/claude-opus-4.5");
+		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-4.5");
+		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
 	});
 
-	it("resolves an explicit provider:model-id", () => {
+	it("resolves an explicit provider:model-id (direct Anthropic, bypassing the gateway)", () => {
 		const resolve = createModelResolver();
 		const m = resolve({ model: "anthropic:claude-haiku-4-5" });
+		expect(m.provider).toBe("anthropic");
 		expect(m.id).toBe("claude-haiku-4-5");
+	});
+
+	it("can be reconfigured for direct provider access (the provider-agnostic seam)", () => {
+		const resolve = createModelResolver({
+			defaultProvider: "anthropic",
+			replaceDefaults: true,
+			aliases: { sonnet: "anthropic:claude-sonnet-4-5" },
+		});
+		expect(resolve({ model: "sonnet" }).provider).toBe("anthropic");
 	});
 
 	it("resolves a bare known model id by searching the registry", () => {
@@ -27,7 +37,7 @@ describe("createModelResolver", () => {
 	it("supports custom aliases merged over the defaults", () => {
 		const resolve = createModelResolver({ aliases: { cheap: "anthropic:claude-haiku-4-5" } });
 		expect(resolve({ model: "cheap" }).id).toBe("claude-haiku-4-5");
-		expect(resolve({ model: "opus" }).id).toBe("claude-opus-4-5"); // defaults still present
+		expect(resolve({ model: "opus" }).id).toBe("anthropic/claude-opus-4.5"); // gateway defaults still present
 	});
 
 	it("accepts a concrete Model as an alias value", () => {

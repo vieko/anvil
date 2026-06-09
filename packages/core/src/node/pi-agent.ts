@@ -1,6 +1,7 @@
 import type { AgentTool, ExecutionEnv, Session, SessionRepo, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AgentHarness, InMemorySessionRepo } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
+import { getEnvApiKey } from "@earendil-works/pi-ai";
 import type { Agent, AgentDispatch, AgentResult, Effort, ModelEffort } from "../index.ts";
 import { createModelResolver } from "./model-resolver.ts";
 import { defaultTools } from "./tools.ts";
@@ -28,15 +29,6 @@ export interface PiAgentOptions {
 	/** Map anvil Effort to pi ThinkingLevel. Default: identity, with `max` -> `xhigh`. */
 	thinkingLevel?: (effort: Effort | undefined) => ThinkingLevel | undefined;
 }
-
-const PROVIDER_ENV: Record<string, string> = {
-	anthropic: "ANTHROPIC_API_KEY",
-	openai: "OPENAI_API_KEY",
-	google: "GEMINI_API_KEY",
-	mistral: "MISTRAL_API_KEY",
-	groq: "GROQ_API_KEY",
-	xai: "XAI_API_KEY",
-};
 
 const DEFAULT_SYSTEM_PROMPT =
 	"You are an autonomous engineer. Achieve the requested outcome by editing files and running commands. " +
@@ -132,9 +124,12 @@ function defaultThinkingLevel(effort: Effort | undefined): ThinkingLevel | undef
 	}
 }
 
-/** Read the provider's API key from the environment. Returns undefined when absent. */
+/**
+ * Read the provider's API key from the environment, delegating to pi-ai's own
+ * provider->env mapping (covers every provider pi knows, including the Vercel
+ * AI Gateway's `AI_GATEWAY_API_KEY` and Anthropic's OAuth-token precedence).
+ */
 const defaultGetApiKey: ApiKeyResolver = async (model) => {
-	const envVar = PROVIDER_ENV[model.provider];
-	const apiKey = envVar ? process.env[envVar] : undefined;
+	const apiKey = getEnvApiKey(model.provider);
 	return apiKey ? { apiKey } : undefined;
 };
