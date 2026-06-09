@@ -133,7 +133,7 @@ Track A (build — the spine is settled, needs no usage data):
 - **A1** — this design doc. ✔
 - **A2** — `runToGate` test-first against fakes. *(walking skeleton landed; full
   matrix — stall detection, budget cap, inconclusive accounting — ongoing.)*
-- **A3** — harden the gate + wire the node seams. *In progress:*
+- **A3** — harden the gate + wire the node seams. *Done.*
   `WorktreeWorkspace` (git worktree on a pi `NodeExecutionEnv`) and `CommandGate`
   (clean-env execution via per-command `env`; flake-resistance — fail-then-pass
   is inconclusive not a hard failure, can't-run is inconclusive not failure, a
@@ -148,9 +148,13 @@ Track A (build — the spine is settled, needs no usage data):
   (no TUI/highlight/image deps), with a contract that matches what coding models
   expect (batch exact-unique-match edit, head/tail truncation) cribbed from pi's
   tools but reimplemented as ours. PiAgent defaults to these, so the worker has
-  hands. *Next:* a real end-to-end `runToGate` over the three node seams (faux
-  model scripted to call a tool -> real worktree edit -> real gate -> commit).
-- **A4** — route forge's `run <spec>` common case through the engine at parity.
+  hands. The whole loop is proven end-to-end in `test/run-to-gate.e2e.test.ts`
+  with only the model faked: a faux response calls the real `write` tool, which
+  mutates a real git worktree, which the real gate verifies via real shell exec,
+  which commits on pass — including the fail-then-retry-then-pass path.
+- **A4** — *next.* Route forge's `run <spec>` common case through the engine at
+  parity. Open question to settle first: model resolution (the `resolveModel`
+  seam) — anvil needs a concrete (provider, model-id) mapping for real runs.
 
 Track B (measure → cut, runs in parallel, gates only the deletions): query
 forge's `runs` DB for sandbox / pipeline / dep-declaration / detach usage and

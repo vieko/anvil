@@ -31,6 +31,8 @@ npm test          # vitest
 
 ## Status
 
-Phase A2 — walking skeleton. `runToGate` + the escalation ladder are real and
-tested; the node-bound implementations (`PiAgent`, `WorktreeWorkspace`,
-`CommandGate`) are stubbed for phase A3.
+Phase A3 complete — the engine runs end to end. `runToGate` drives `PiAgent`
+(pi's `AgentHarness` + anvil's read/edit/write/bash tools) inside a
+`WorktreeWorkspace` (git worktree), verified by `CommandGate`, with the
+fail-then-retry-then-pass loop. Proven in `test/run-to-gate.e2e.test.ts` with
+only the model faked. Next: A4 — route forge's `run <spec>` through the engine.
