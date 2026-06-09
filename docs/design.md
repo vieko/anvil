@@ -141,8 +141,11 @@ Track A (build — the spine is settled, needs no usage data):
   with tests (real-git integration for the workspace, fakes for the gate). The
   `.`/`./node` purity boundary is enforced by `test/boundary.test.ts`. `ExecResult`
   carries an `error` field so the gate can tell "ran and failed" from "could not
-  run". *Next:* `PiAgent` (wrap pi `AgentHarness.prompt()`) + anvil's own
-  read/edit/bash tools over the `ExecutionEnv`.
+  run". `PiAgent` (the `Agent` seam over pi's `AgentHarness.prompt()`) has landed,
+  faux-provider tested (no network/key); it is provider-agnostic via an injected
+  `resolveModel` and takes injectable tools. *Next:* anvil's own read/edit/bash
+  tools over the `ExecutionEnv` (needs typebox schemas) to give the agent hands,
+  then a real end-to-end `runToGate` over the three node seams.
 - **A4** — route forge's `run <spec>` common case through the engine at parity.
 
 Track B (measure → cut, runs in parallel, gates only the deletions): query

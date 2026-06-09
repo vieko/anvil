@@ -7,7 +7,7 @@
 // Seam mapping (see docs/design.md):
 //   WorktreeWorkspace -> a pi ExecutionEnv (NodeExecutionEnv) on a git worktree
 //   CommandGate       -> detected build/test commands run via Workspace.exec
-//   PiAgent           -> pi-agent-core AgentHarness.prompt()  (next: still A3)
+//   PiAgent           -> pi-agent-core AgentHarness.prompt()
 
 export * from "../index.ts";
 export {
@@ -18,4 +18,5 @@ export {
 	type GateCommand,
 	type PackageManager,
 } from "./command-gate.ts";
+export { type ApiKeyResolver, type ModelResolver, PiAgent, type PiAgentOptions } from "./pi-agent.ts";
 export { WorktreeWorkspace, type WorktreeWorkspaceOptions } from "./worktree-workspace.ts";
