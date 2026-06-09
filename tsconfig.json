@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@anvil/core": ["./packages/core/src/index.ts"],
+      "@anvil/core/node": ["./packages/core/src/node.ts"],
+      "@anvil/core/*": ["./packages/core/src/*"]
+    }
+  },
+  "include": ["packages/*/src/**/*", "packages/*/test/**/*"],
+  "exclude": ["**/dist/**", "**/node_modules/**"]
+}

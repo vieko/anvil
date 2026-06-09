@@ -1,0 +1,37 @@
+{
+  "name": "@anvil/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The anvil engine: define outcome -> agent works -> deterministic gate -> loop.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.78.1",
+    "@earendil-works/pi-ai": "0.78.1"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}
