@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runToGate } from "../src/run-to-gate.ts";
+import { classifyDispatch, runToGate } from "../src/run-to-gate.ts";
 import type { Agent, Gate, GateResult, RunRecord, StatePersister, Workspace } from "../src/types.ts";
 
 function fakeWorkspace(): Workspace & { committed: string[] } {
@@ -138,5 +138,73 @@ describe("runToGate", () => {
 		expect(res.passed).toBe(true);
 		// The inconclusive verdict must not have rewritten the prompt with error feedback.
 		expect(prompts.every((p) => p === "ORIGINAL")).toBe(true);
+	});
+
+	it("treats an empty no-cost dispatch as a non-pass (#19 false-pass guard), not a silent pass", async () => {
+		let n = 0;
+		const agent: Agent = {
+			async dispatch() {
+				n++;
+				return n === 1
+					? { text: "", usage: { input: 0, output: 0, cacheRead: 0 } }
+					: { text: "done", usage: { input: 10, output: 5, cacheRead: 0 } };
+			},
+		};
+		const ws = fakeWorkspace();
+
+		// passingGate would commit on attempt 0 if the empty turn reached it.
+		const res = await runToGate(
+			{ id: "g1", prompt: "p" },
+			{ agent, workspace: ws, gate: passingGate, persist: recordingPersister() },
+		);
+
+		expect(res.passed).toBe(true);
+		expect(res.attempts).toBe(2); // attempt 0 guarded; the pass came on the real attempt 1
+		expect(ws.committed).toEqual(["anvil: g1"]); // exactly one commit, on the real turn
+	});
+
+	it("treats API-error result text as a non-pass, not a verified success", async () => {
+		let verifyCalls = 0;
+		let n = 0;
+		const agent: Agent = {
+			async dispatch() {
+				n++;
+				return n === 1 ? { text: "API Error: 503 overloaded_error" } : { text: "done" };
+			},
+		};
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				return { passed: true, errors: "", commands: [] };
+			},
+		};
+
+		const res = await runToGate(
+			{ id: "g2", prompt: "p" },
+			{ agent, workspace: fakeWorkspace(), gate, persist: recordingPersister() },
+		);
+
+		expect(res.passed).toBe(true);
+		expect(res.attempts).toBe(2);
+		expect(verifyCalls).toBe(1); // the gate ran only for the real turn, not the API-error turn
+	});
+});
+
+describe("classifyDispatch", () => {
+	it("flags empty text with zero tokens as 'empty' (the turn never ran)", () => {
+		expect(classifyDispatch({ text: "  ", usage: { input: 0, output: 0, cacheRead: 0 } })).toBe("empty");
+		expect(classifyDispatch({ text: "" })).toBe("empty");
+	});
+
+	it("flags result text that is itself a provider error as 'api-error'", () => {
+		expect(classifyDispatch({ text: "API Error: overloaded_error" })).toBe("api-error");
+		expect(classifyDispatch({ text: "503 Internal Server Error" })).toBe("api-error");
+	});
+
+	it("treats real output as 'ok', including a short non-empty answer with no usage reported", () => {
+		expect(classifyDispatch({ text: "done" })).toBe("ok");
+		expect(classifyDispatch({ text: "implemented sum", usage: { input: 10, output: 5, cacheRead: 0 } })).toBe("ok");
+		const long = "I fixed the failing assertion and the tests pass now. ".repeat(8);
+		expect(classifyDispatch({ text: long })).toBe("ok");
 	});
 });

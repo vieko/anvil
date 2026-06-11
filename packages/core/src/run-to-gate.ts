@@ -9,6 +9,7 @@
 import { escalate as defaultEscalate } from "./escalation.ts";
 import type {
 	Agent,
+	AgentResult,
 	Escalator,
 	Gate,
 	ModelEffort,
@@ -136,6 +137,26 @@ export async function runToGate(
 		const dispatch = await agent.dispatch({ prompt, config, resume: sessionId, signal: options.signal });
 		sessionId = dispatch.sessionId ?? sessionId;
 
+		// False-pass guard (forge #19/#297): a "successful" turn that returned
+		// nothing (empty text + zero tokens) never actually ran, and result text
+		// that is itself a provider error means the turn died mid-flight. In both
+		// cases DO NOT run the gate — a guard may only force a non-pass, never a
+		// pass (the gate stays the sole authority on "done"). Re-dispatch the same
+		// prompt: this is a transport/provider glitch, not a code failure to fix.
+		const verdict = classifyDispatch(dispatch);
+		if (verdict !== "ok") {
+			lastErrors =
+				verdict === "empty"
+					? "The agent returned an empty response with no token usage; the turn did not execute."
+					: "The agent turn ended with a provider/API error before completing.";
+			const dispatchFailedLast = attempt + 1 >= maxAttempts;
+			await record(dispatchFailedLast ? "failed" : "retrying", attempt, config, {
+				usage: dispatch.usage,
+				errors: lastErrors,
+			});
+			continue;
+		}
+
 		await record("verifying", attempt, config, { usage: dispatch.usage });
 		const result = await gate.verify(workspace, options.signal);
 
@@ -188,4 +209,21 @@ ${errors}
 - All verification commands pass (typecheck, build, tests)
 - No compilation or type errors
 - All imports resolve correctly`;
+}
+
+/**
+ * Classify an agent turn before it reaches the gate. Two failure shapes hide
+ * behind a "success" envelope (forge #19/#297): an empty response with zero
+ * tokens (the turn never ran), and result text that is itself a provider/API
+ * error (the turn died mid-flight). Either one must force a retry rather than
+ * being verified — otherwise a repo that already satisfies the gate yields a
+ * false pass.
+ */
+export function classifyDispatch(result: AgentResult): "ok" | "empty" | "api-error" {
+	const text = (result.text ?? "").trim();
+	const tokens = (result.usage?.input ?? 0) + (result.usage?.output ?? 0);
+	if (text === "" && tokens === 0) return "empty";
+	if (/^API Error\b/i.test(text)) return "api-error";
+	if (text.length < 200 && /(internal server error|overloaded_error|\b50[0-9]\b)/i.test(text)) return "api-error";
+	return "ok";
 }
