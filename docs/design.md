@@ -166,7 +166,7 @@ Track A (build — the spine is settled, needs no usage data):
   with only the model faked: a faux response calls the real `write` tool, which
   mutates a real git worktree, which the real gate verifies via real shell exec,
   which commits on pass — including the fail-then-retry-then-pass path.
-- **A4** — *next.* Build anvil's first-class CLI. anvil is forge's **successor**
+- **A4** — *Done.* Build anvil's first-class CLI. anvil is forge's **successor**
   (a focused rewrite), not a library forge consumes — `anvil run` covers forge's
   `run <spec>` common case at parity, proven by ported forge tests. Model
   resolution is settled: `createModelResolver()` maps anvil's
@@ -178,9 +178,14 @@ Track A (build — the spine is settled, needs no usage data):
   durable `FileStatePersister` (node, atomic per-outcome JSON), with
   `runToGate({ resume: true })` returning terminal records immediately and
   continuing a non-terminal one (reused session + rebuilt retry prompt).
-  Remaining A4 piece: the CLI surface itself (`packages/cli`, `@anvil/cli`:
-  `anvil run`/`status`, then `resume`) over the finished engine, with parity
-  proven by ported forge tests.
+  **A4 is complete.** The CLI surface landed (`packages/cli`, `@anvil/cli`:
+  `anvil run` + `status`) as a thin layer over the finished engine, and the
+  in-scope forge-parity test port landed — false-pass guards (the one real gap
+  it surfaced), the escalation-ladder contract, and the run-loop assertions
+  (core suite 67 -> 85 tests). `anvil run` covers forge's `run <spec>` common
+  case at behavior parity. Crash-`resume` is engine-capable
+  (`runToGate({ resume: true })`) but is **not** surfaced on the CLI —
+  deferred, see §10.
 
 Track B (measure → cut, runs in parallel, gates only the deletions): query
 forge's `runs` DB for sandbox / pipeline / dep-declaration / detach usage and
@@ -199,11 +204,53 @@ its gate/verify and worktree edge-case tests, but nothing routes *through* it.
 The engine "wins" when `anvil run <spec>` — the 80% common case forge served —
 runs at behavior parity, proven by ported forge tests. The CLI is a thin surface
 (`packages/cli`, `@anvil/cli`) over the finished `runToGate` engine; the engine
-itself does not change to get there.
+itself does not change to get there. **Met (A4):** the CLI (`anvil run` +
+`status`) landed and the in-scope forge-parity tests are green (core suite
+67 -> 85).
 
 ## 9. Non-goals
 
 - A pipeline concept distinct from "stages through the engine."
 - A second workspace backend until usage data demands it (and then behind the
   same narrow `Workspace` interface — zero backend leakage outside `node`).
+- **In-place execution** (running in the repo's *main working tree* rather than
+  a linked worktree). Autonomous anvil **always** isolates in a linked worktree;
+  working in place is reserved for hands-on/interactive sessions (a human, or an
+  interactive agent). This is a safety **invariant**, not a missing feature —
+  anvil never touches your main working tree, so it can never stomp uncommitted
+  work, which is also what keeps the `git add -A` in `WorktreeWorkspace.commit`
+  permanently safe.
 - Owning the inner agentic tool-use loop (that is the substrate's job).
+
+## 10. Deferred — revisit only on evidence
+
+Decisions are driven by usage data, not speculation. These are intentionally
+*not* built; each notes the evidence that would reopen it.
+
+- **CLI `resume` (crash-resume mid-run).** The engine supports it
+  (`runToGate({ resume: true })`), but surfacing it is **not worth it at this
+  scope**, and forcing `Workspace` / `RunRecord` to grow a worktree-reattach
+  concept is the cost. Anvil commits **only on gate-pass**, so there is no
+  partial-commit progress to rescue; a crashed run's edits survive on disk in
+  the worktree regardless; and `PiAgent`'s in-memory session makes cross-process
+  conversation continuity best-effort — a fresh run pointed at the same worktree
+  recovers ~the same state. The durable state we built pays off as **`status` +
+  idempotency** (don't redo a `passed` outcome), which already works — *that*,
+  not crash-resume, is its purpose. Reopen if anvil grows expensive long-running
+  single outcomes, or a detached/queued executor where losing in-flight work is
+  costly.
+- **`--no-escalate` (and `--strong-model` / `--weak-tier`).** The escalation
+  seam is proven (`escalate: (b) => b` pins it; `makeEscalator(policy)` retargets
+  it), so a flag is ~5 lines *whenever needed*. Adding it now is surface "just in
+  case". Reopen on a concrete need — a non-Anthropic base that should not cross
+  providers to opus, or a cost complaint. The underlying concern is usually "is
+  the **default** right?", which is tuning, not a flag.
+- **Richer `status` (per-attempt timeline).** `FileStatePersister` keeps only the
+  latest record per outcome; an append-log (JSONL) variant would give the full
+  timeline. Pure observability polish, zero correctness impact. Reopen when a TUI
+  or a concrete debugging session makes the timeline pull its weight.
+- **Use-driven ergonomics (named, not built).** Two gaps usage will likely
+  surface first: linked worktrees **accumulate** in `<repo>-anvil/` (one per run,
+  never cleaned) → a `prune` may earn itself; and there is no helper to **merge** a
+  result branch back (today: `git merge anvil/<id>/<ts>` by hand). Both wait on
+  evidence that they actually bite.
