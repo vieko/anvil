@@ -7,7 +7,7 @@ describe("parse", () => {
 		expect(cmd).toEqual({
 			kind: "run",
 			outcome: "make the build green",
-			options: { dir: undefined, model: undefined, maxAttempts: undefined, verify: [], quiet: false },
+			options: { dir: undefined, model: undefined, maxAttempts: undefined, verify: [], quiet: false, verbose: false },
 		});
 	});
 
@@ -26,6 +26,7 @@ describe("parse", () => {
 			"-C",
 			"/tmp/repo",
 			"-q",
+			"-v",
 		]);
 		expect(cmd).toEqual({
 			kind: "run",
@@ -36,6 +37,7 @@ describe("parse", () => {
 				maxAttempts: 5,
 				verify: ["npm test", "tsc --noEmit"],
 				quiet: true,
+				verbose: true,
 			},
 		});
 	});

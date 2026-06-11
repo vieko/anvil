@@ -56,6 +56,18 @@ export interface Agent {
 	dispatch(d: AgentDispatch): Promise<AgentResult>;
 }
 
+/**
+ * A live activity event emitted by the agent during a dispatch, for streaming
+ * and logging. Provider-agnostic: node impls translate their native events
+ * (e.g. pi's AgentEvent) into this minimal shape so the surface can render it.
+ */
+export type AgentActivity =
+	| { kind: "tool-start"; tool: string; summary?: string }
+	| { kind: "tool-end"; tool: string; ok: boolean };
+
+/** Sink for {@link AgentActivity} events. Wired by the surface to render `-v` output. */
+export type AgentEventSink = (event: AgentActivity) => void;
+
 // ── Where: the workspace seam ────────────────────────────────
 // Isolation + command execution. Under "@anvil/core/node" this is a pi
 // ExecutionEnv (FileSystem & Shell) pointed at a git worktree.

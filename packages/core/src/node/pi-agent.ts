@@ -1,8 +1,16 @@
-import type { AgentTool, ExecutionEnv, Session, SessionRepo, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { AgentHarness, InMemorySessionRepo } from "@earendil-works/pi-agent-core";
+import type { AgentHarnessEvent, AgentTool, ExecutionEnv, Session, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { AgentHarness, InMemorySessionRepo, JsonlSessionRepo } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { getEnvApiKey } from "@earendil-works/pi-ai";
-import type { Agent, AgentDispatch, AgentResult, Effort, ModelEffort } from "../index.ts";
+import type {
+	Agent,
+	AgentActivity,
+	AgentDispatch,
+	AgentEventSink,
+	AgentResult,
+	Effort,
+	ModelEffort,
+} from "../index.ts";
 import { createModelResolver } from "./model-resolver.ts";
 import { defaultTools } from "./tools.ts";
 
@@ -24,8 +32,15 @@ export interface PiAgentOptions {
 	systemPrompt?: string;
 	/** Provide the API key/headers for a model. Default: read from env by provider. */
 	getApiKeyAndHeaders?: ApiKeyResolver;
-	/** Session repository. Default: in-memory (one transcript per run, reused on resume). */
-	sessionRepo?: SessionRepo;
+	/**
+	 * Persist each run's transcript as JSONL under this (absolute) root, using
+	 * `env` as the filesystem. Omit for an in-memory session discarded on exit.
+	 */
+	sessionsRoot?: string;
+	/** cwd used to bucket persisted sessions (typically the workspace cwd). Default ".". */
+	sessionCwd?: string;
+	/** Live activity sink: receives tool-call lifecycle events during a dispatch. */
+	onActivity?: AgentEventSink;
 	/** Map anvil Effort to pi ThinkingLevel. Default: identity, with `max` -> `xhigh`. */
 	thinkingLevel?: (effort: Effort | undefined) => ThinkingLevel | undefined;
 }
@@ -46,15 +61,22 @@ const DEFAULT_SYSTEM_PROMPT =
  */
 export class PiAgent implements Agent {
 	private readonly options: PiAgentOptions;
-	private readonly repo: SessionRepo;
 	private readonly resolveModel: ModelResolver;
+	private readonly createSession: () => Promise<Session>;
 	/** Sessions created by this agent, so a `resume` continues the same transcript. */
 	private readonly sessions = new Map<string, Session>();
 
 	constructor(options: PiAgentOptions) {
 		this.options = options;
-		this.repo = options.sessionRepo ?? new InMemorySessionRepo();
 		this.resolveModel = options.resolveModel ?? createModelResolver();
+		if (options.sessionsRoot) {
+			const repo = new JsonlSessionRepo({ fs: options.env, sessionsRoot: options.sessionsRoot });
+			const cwd = options.sessionCwd ?? ".";
+			this.createSession = () => repo.create({ cwd });
+		} else {
+			const repo = new InMemorySessionRepo();
+			this.createSession = () => repo.create({});
+		}
 	}
 
 	async dispatch(d: AgentDispatch): Promise<AgentResult> {
@@ -79,6 +101,9 @@ export class PiAgent implements Agent {
 			else d.signal.addEventListener("abort", onAbort, { once: true });
 		}
 
+		const sink = this.options.onActivity;
+		const unsubscribe = sink ? harness.subscribe((event) => forwardActivity(event, sink)) : undefined;
+
 		try {
 			const message = await harness.prompt(d.prompt);
 			return {
@@ -92,6 +117,7 @@ export class PiAgent implements Agent {
 			};
 		} finally {
 			d.signal?.removeEventListener("abort", onAbort);
+			unsubscribe?.();
 		}
 	}
 
@@ -100,8 +126,38 @@ export class PiAgent implements Agent {
 			const existing = this.sessions.get(resume);
 			if (existing) return existing;
 		}
-		return this.repo.create({});
+		return this.createSession();
 	}
+}
+
+/**
+ * Translate a pi harness event into an anvil {@link AgentActivity}, forwarding
+ * tool-call lifecycle to the sink. Non-tool events (text/turn lifecycle) are
+ * ignored — the `-v` view is the agent's actions, not its prose.
+ */
+function forwardActivity(event: AgentHarnessEvent, sink: AgentEventSink): void {
+	switch (event.type) {
+		case "tool_execution_start":
+			sink({ kind: "tool-start", tool: event.toolName, summary: summarizeToolArgs(event.args) });
+			break;
+		case "tool_execution_end":
+			sink({ kind: "tool-end", tool: event.toolName, ok: !event.isError });
+			break;
+	}
+}
+
+/** A one-line summary of a tool call: the command (bash) or the path (read/edit/write). */
+function summarizeToolArgs(args: unknown): string | undefined {
+	if (!args || typeof args !== "object") return undefined;
+	const record = args as Record<string, unknown>;
+	if (typeof record.command === "string") return truncateSummary(record.command);
+	if (typeof record.path === "string") return record.path;
+	return undefined;
+}
+
+function truncateSummary(value: string): string {
+	const oneLine = value.replace(/\s+/g, " ").trim();
+	return oneLine.length > 80 ? `${oneLine.slice(0, 77)}...` : oneLine;
 }
 
 /** Concatenate the assistant message's text blocks. */

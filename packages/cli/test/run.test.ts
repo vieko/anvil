@@ -5,7 +5,7 @@ import type { Agent, Gate, GateResult, Workspace } from "@anvil/core";
 import { MemoryStatePersister } from "@anvil/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RunOptions } from "../src/cli.ts";
-import { executeRun, type Io, resolveOutcome } from "../src/run.ts";
+import { executeRun, type Io, renderActivity, resolveOutcome } from "../src/run.ts";
 
 function fakeAgent(): Agent {
 	return {
@@ -45,7 +45,7 @@ function capture(): { io: Io; lines: string[] } {
 	return { lines, io: { out: (l) => lines.push(l), err: (l) => lines.push(l) } };
 }
 
-const opts = (over: Partial<RunOptions> = {}): RunOptions => ({ verify: [], quiet: false, ...over });
+const opts = (over: Partial<RunOptions> = {}): RunOptions => ({ verify: [], quiet: false, verbose: false, ...over });
 
 describe("executeRun", () => {
 	it("returns 0 and reports a pass", async () => {
@@ -77,6 +77,15 @@ describe("executeRun", () => {
 		const out = lines.join("\n");
 		expect(out).toContain("x feat: failed after 1 attempt");
 		expect(out).toContain("tsc: boom");
+	});
+});
+
+describe("renderActivity", () => {
+	it("renders tool start/end as concise ASCII lines", () => {
+		expect(renderActivity({ kind: "tool-start", tool: "bash", summary: "npm test" })).toBe("  > bash: npm test");
+		expect(renderActivity({ kind: "tool-start", tool: "read" })).toBe("  > read");
+		expect(renderActivity({ kind: "tool-end", tool: "bash", ok: true })).toBe("  + bash");
+		expect(renderActivity({ kind: "tool-end", tool: "edit", ok: false })).toBe("  x edit");
 	});
 });
 

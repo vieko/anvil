@@ -1,9 +1,11 @@
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { Model } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ModelEffort } from "../src/index.ts";
+import type { AgentActivity, ModelEffort } from "../src/index.ts";
 import { PiAgent } from "../src/node/pi-agent.ts";
 
 // Drives the real AgentHarness against pi-ai's faux provider — no network, no
@@ -78,5 +80,33 @@ describe("PiAgent.dispatch", () => {
 		const second = await agent.dispatch({ prompt: "p2", config: { model: "m" } });
 
 		expect(second.sessionId).not.toBe(first.sessionId);
+	});
+
+	it("streams tool-call activity to the sink and persists a JSONL transcript", async () => {
+		faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+		const sessionsRoot = await mkdtemp(join(tmpdir(), "anvil-sessions-"));
+		const activity: AgentActivity[] = [];
+		const agent = new PiAgent({
+			env,
+			resolveModel: () => model,
+			systemPrompt: "test",
+			onActivity: (event) => activity.push(event),
+			sessionsRoot,
+			sessionCwd: tmpdir(),
+		});
+
+		const res = await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
+
+		expect(res.text).toBe("done");
+		expect(activity).toContainEqual({ kind: "tool-start", tool: "bash", summary: "echo hi" });
+		expect(activity).toContainEqual({ kind: "tool-end", tool: "bash", ok: true });
+
+		const entries = await readdir(sessionsRoot, { recursive: true });
+		expect(entries.some((entry) => String(entry).endsWith(".jsonl"))).toBe(true);
+
+		await rm(sessionsRoot, { recursive: true, force: true });
 	});
 });

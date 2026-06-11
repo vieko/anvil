@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
+import type { AgentActivity } from "@anvil/core";
 import { HELP, parse } from "./cli.ts";
-import { consoleIo, executeRun, resolveOutcome } from "./run.ts";
+import { consoleIo, executeRun, renderActivity, resolveOutcome } from "./run.ts";
 import { executeSkills } from "./skills.ts";
 import { executeStatus } from "./status.ts";
 import { buildRunDeps } from "./wiring.ts";
@@ -36,7 +37,10 @@ async function main(): Promise<number> {
 		case "run": {
 			const dir = cmd.options.dir ?? process.cwd();
 			const outcome = await resolveOutcome(cmd.outcome, cmd.options);
-			const { deps, workspace, branch } = await buildRunDeps(outcome.id, dir, cmd.options);
+			const onActivity = cmd.options.verbose
+				? (event: AgentActivity) => consoleIo.err(renderActivity(event))
+				: undefined;
+			const { deps, workspace, branch } = await buildRunDeps(outcome.id, dir, cmd.options, onActivity);
 			if (!cmd.options.quiet) consoleIo.out(`> ${outcome.id}\n  ${workspace.cwd}\n  branch ${branch}`);
 			return executeRun(outcome, cmd.options, deps, consoleIo);
 		}

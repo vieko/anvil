@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import type { Agent, Gate, Outcome, StatePersister, Workspace } from "@anvil/core";
+import type { Agent, AgentActivity, Gate, Outcome, StatePersister, Workspace } from "@anvil/core";
 import { runToGate } from "@anvil/core";
 import type { RunOptions } from "./cli.ts";
 
@@ -42,6 +42,19 @@ export async function executeRun(outcome: Outcome, options: RunOptions, deps: Ru
 	io.err(`x ${outcome.id}: failed after ${attempts}`);
 	if (result.errors && !options.quiet) io.err(result.errors);
 	return 1;
+}
+
+/**
+ * Render a live agent activity event as one concise ASCII line for `-v` output.
+ * Indented to nest under the run header. `>` running, `+` ok, `x` error.
+ */
+export function renderActivity(event: AgentActivity): string {
+	switch (event.kind) {
+		case "tool-start":
+			return event.summary ? `  > ${event.tool}: ${event.summary}` : `  > ${event.tool}`;
+		case "tool-end":
+			return `  ${event.ok ? "+" : "x"} ${event.tool}`;
+	}
 }
 
 /**

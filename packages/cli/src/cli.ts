@@ -8,6 +8,8 @@ export interface RunOptions {
 	/** Explicit gate commands; when empty the gate auto-detects. */
 	verify: string[];
 	quiet: boolean;
+	/** Stream the agent's tool calls + gate progress to stderr as it works. */
+	verbose: boolean;
 }
 
 export type Command =
@@ -37,6 +39,7 @@ export function parse(argv: string[]): Command {
 				verify: { type: "string", multiple: true },
 				full: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
+				verbose: { type: "boolean", short: "v" },
 				help: { type: "boolean", short: "h" },
 				version: { type: "boolean" },
 			},
@@ -75,6 +78,7 @@ export function parse(argv: string[]): Command {
 					maxAttempts,
 					verify: (values.verify as string[] | undefined) ?? [],
 					quiet: (values.quiet as boolean | undefined) ?? false,
+					verbose: (values.verbose as boolean | undefined) ?? false,
 				},
 			};
 		}
@@ -114,4 +118,5 @@ run options:
       --model <name>      Base model: alias (sonnet/opus/haiku) or provider:id
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
+  -v, --verbose           Stream the agent's actions + gate progress (to stderr)
   -q, --quiet             Print only the final verdict`;
