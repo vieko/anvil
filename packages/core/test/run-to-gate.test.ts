@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyDispatch, runToGate } from "../src/run-to-gate.ts";
-import type { Agent, Gate, GateResult, RunRecord, StatePersister, Workspace } from "../src/types.ts";
+import type { Agent, Gate, GateResult, ModelEffort, RunRecord, StatePersister, Workspace } from "../src/types.ts";
 
 function fakeWorkspace(): Workspace & { committed: string[] } {
 	const committed: string[] = [];
@@ -61,12 +61,12 @@ describe("runToGate", () => {
 		expect(persist.states).toEqual(["running", "verifying", "passed"]);
 	});
 
-	it("loops, escalates the model, and feeds errors back until the gate goes green", async () => {
-		const seenModels: string[] = [];
+	it("loops, escalates model AND effort, and feeds errors back until the gate goes green", async () => {
+		const seenConfigs: ModelEffort[] = [];
 		let verifyCalls = 0;
 		const agent: Agent = {
 			async dispatch(d) {
-				seenModels.push(d.config.model);
+				seenConfigs.push(d.config);
 				return { text: "attempt", sessionId: "s1" };
 			},
 		};
@@ -86,8 +86,75 @@ describe("runToGate", () => {
 
 		expect(res.passed).toBe(true);
 		expect(res.attempts).toBe(3);
-		// Monotonic strengthening: sonnet@low -> sonnet@high -> opus@high
-		expect(seenModels).toEqual(["sonnet", "sonnet", "opus"]);
+		// Monotonic strengthening of BOTH dimensions, not just the model.
+		expect(seenConfigs).toEqual([
+			{ model: "sonnet", effort: "low" },
+			{ model: "sonnet", effort: "high" },
+			{ model: "opus", effort: "high" },
+		]);
+		expect(res.finalConfig).toEqual({ model: "opus", effort: "high" });
+	});
+
+	it("feeds the gate's error text into the retry prompt (root-cause feedback)", async () => {
+		const prompts: string[] = [];
+		let verifyCalls = 0;
+		const agent: Agent = {
+			async dispatch(d) {
+				prompts.push(d.prompt);
+				return { text: "x" };
+			},
+		};
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				return verifyCalls === 1
+					? { passed: false, errors: "AssertionError: expected 1 to equal 2", commands: [] }
+					: { passed: true, errors: "", commands: [] };
+			},
+		};
+
+		await runToGate(
+			{ id: "fb", prompt: "make the test pass" },
+			{ agent, workspace: fakeWorkspace(), gate, persist: recordingPersister() },
+		);
+
+		// Attempt 0 dispatched the original prompt verbatim; attempt 1's prompt
+		// embeds the failure feedback so the agent has concrete output to fix.
+		expect(prompts[0]).toBe("make the test pass");
+		expect(prompts[1]).toContain("Verification attempt 1");
+		expect(prompts[1]).toContain("AssertionError: expected 1 to equal 2");
+		expect(prompts[1]).toContain("make the test pass"); // the outcome is preserved in the retry prompt
+	});
+
+	it("pins model/effort across attempts when given a passthrough escalator (no-escalate)", async () => {
+		const seenConfigs: ModelEffort[] = [];
+		let verifyCalls = 0;
+		const agent: Agent = {
+			async dispatch(d) {
+				seenConfigs.push(d.config);
+				return { text: "x" };
+			},
+		};
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				return verifyCalls < 3
+					? { passed: false, errors: "still red", commands: [] }
+					: { passed: true, errors: "", commands: [] };
+			},
+		};
+
+		const res = await runToGate(
+			{ id: "pin", prompt: "p", base: { model: "sonnet", effort: "low" } },
+			// A passthrough escalator ignores the attempt index -> the config never climbs.
+			{ agent, workspace: fakeWorkspace(), gate, persist: recordingPersister(), escalate: (b) => b },
+		);
+
+		expect(res.passed).toBe(true);
+		expect(res.attempts).toBe(3);
+		for (const c of seenConfigs) {
+			expect(c).toEqual({ model: "sonnet", effort: "low" });
+		}
 	});
 
 	it("gives up after maxAttempts and returns the last gate errors", async () => {
