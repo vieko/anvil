@@ -60,6 +60,23 @@ anvil run "refactor without regressions" --verify "tsc --noEmit" --verify "pnpm 
 If no gate is detected and none is supplied, anvil **refuses to vouch** — it
 reports *inconclusive* rather than a false pass. No gate, no guarantee.
 
+### Choose a gate that reproduces in a fresh checkout
+
+anvil works in a fresh, secret-light worktree with no running services — a
+CI-like checkout. Gate on the **deterministic tier**: typecheck, lint, unit
+tests, and build. That is what a good CI pipeline runs, and it passes without a
+developer's local secrets.
+
+Do **not** gate an autonomous run on **e2e or live-integration** tests: they
+need a running app, a browser, and real credentials; they are flaky by nature
+(and the gate treats a flake as inconclusive, burning attempts); and handing a
+worked agent real secrets widens the blast radius. Leave those to humans / CI
+after merge.
+
+In a monorepo a package's plain `test` script may chain unit + integration +
+e2e — prefer the specific deterministic script (e.g. `test:unit`) or an explicit
+`--verify`.
+
 ## What happens
 
 - anvil creates an isolated **linked worktree** on a branch `anvil/<id>/<ts>`

@@ -32,6 +32,27 @@ From `package.json` + lockfile, in order:
 pnpm, `yarn.lock` -> yarn, else npm. Prefer `--verify` when you know the exact
 check; auto-detection is a convenience, not a contract.
 
+## Choosing the gate: the deterministic tier
+
+anvil's worktree is a fresh, secret-light checkout with no running services --
+effectively a CI environment. Gate on the tier built for that:
+
+- **deterministic** (recommended gate): typecheck, lint, unit tests, build.
+  These pass without a developer's `.env.local` -- by design, it is what CI
+  runs. A build that validates API keys at module load can be made to pass with
+  placeholder env; the real keys are never needed for a build or typecheck.
+- **integration / e2e** (avoid as the autonomous gate): need a running app, a
+  database or live services, a browser, and real secrets. They are flaky and
+  environment-dependent -- the gate treats a flake as inconclusive, so an
+  autonomous loop wastes attempts chasing noise -- and supplying real secrets to
+  a worked agent widens the blast radius.
+
+Trap: a package's plain `test` script may chain all three tiers (e.g.
+`vitest && vitest --config integration && playwright test`). Auto-detection
+prefers `test`, so it can pull in e2e. When that is a risk, name the
+deterministic script directly (`--verify "<pm> run test:unit"`) or pass an
+explicit `--verify`.
+
 ## Escalation ladder
 
 Each failed attempt strengthens the (model, effort) pair, so a too-weak base
