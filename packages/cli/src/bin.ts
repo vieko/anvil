@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { HELP, parse } from "./cli.ts";
 import { consoleIo, executeRun, resolveOutcome } from "./run.ts";
+import { executeSkills } from "./skills.ts";
 import { executeStatus } from "./status.ts";
 import { buildRunDeps } from "./wiring.ts";
 
@@ -30,6 +31,8 @@ async function main(): Promise<number> {
 			return 2;
 		case "status":
 			return executeStatus(cmd.dir ?? process.cwd(), consoleIo);
+		case "skills":
+			return executeSkills(cmd.action, cmd.name, cmd.full, consoleIo);
 		case "run": {
 			const dir = cmd.options.dir ?? process.cwd();
 			const outcome = await resolveOutcome(cmd.outcome, cmd.options);

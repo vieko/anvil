@@ -9,6 +9,8 @@
   },
   "files": [
     "dist",
+    "skills",
+    "skill-data",
     "README.md"
   ],
   "scripts": {

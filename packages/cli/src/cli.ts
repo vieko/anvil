@@ -13,6 +13,7 @@ export interface RunOptions {
 export type Command =
 	| { kind: "run"; outcome: string; options: RunOptions }
 	| { kind: "status"; dir?: string }
+	| { kind: "skills"; action: "list" | "get"; name?: string; full: boolean }
 	| { kind: "help" }
 	| { kind: "version" }
 	| { kind: "error"; message: string };
@@ -34,6 +35,7 @@ export function parse(argv: string[]): Command {
 				model: { type: "string" },
 				"max-attempts": { type: "string", short: "n" },
 				verify: { type: "string", multiple: true },
+				full: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
 				help: { type: "boolean", short: "h" },
 				version: { type: "boolean" },
@@ -78,6 +80,18 @@ export function parse(argv: string[]): Command {
 		}
 		case "status":
 			return { kind: "status", dir };
+		case "skills": {
+			const action = positionals[1] ?? "list";
+			if (action !== "list" && action !== "get") {
+				return { kind: "error", message: `skills: unknown subcommand "${action}" (use: list, get)` };
+			}
+			return {
+				kind: "skills",
+				action,
+				name: action === "get" ? positionals[2] : undefined,
+				full: (values.full as boolean | undefined) ?? false,
+			};
+		}
 		default:
 			return { kind: "error", message: `unknown command: ${command}` };
 	}
@@ -88,6 +102,8 @@ export const HELP = `anvil — define an outcome, the agent works, a determinist
 Usage:
   anvil run <outcome>     Run an outcome to its gate in an isolated worktree
   anvil status            List recorded runs and their state
+  anvil skills get core   Print the agent usage guide (served by this binary)
+  anvil skills list       List the bundled agent guides
   anvil --help            Show this help
   anvil --version         Show the version
 
