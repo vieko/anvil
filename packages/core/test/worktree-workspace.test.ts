@@ -112,6 +112,35 @@ describe("WorktreeWorkspace (real git)", () => {
 			await ws.cleanup();
 		}
 	});
+
+	it("seeds an oracle into the base and detects agent tampering (hard freeze)", async () => {
+		await writeFile(join(repoRoot, "oracle.test.ts"), "expect(true).toBe(true)\n");
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b7", oracleFiles: ["oracle.test.ts"] });
+		try {
+			// committed into the base -> present and clean
+			expect(await ws.exists("oracle.test.ts")).toBe(true);
+			expect(await ws.assertFrozen()).toBeNull();
+			const log = await ws.exec("git log --oneline -1");
+			expect(log.stdout).toContain("seed verification oracle");
+
+			// the agent tampers with it -> a violation naming the path
+			await writeFile(join(ws.cwd, "oracle.test.ts"), "expect(true).toBe(false)\n");
+			const violation = await ws.assertFrozen();
+			expect(violation?.path).toBe("oracle.test.ts");
+			expect(violation?.diff).toContain("toBe(false)");
+		} finally {
+			await ws.cleanup();
+		}
+	});
+
+	it("assertFrozen is a no-op when no oracle was seeded", async () => {
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b8" });
+		try {
+			expect(await ws.assertFrozen()).toBeNull();
+		} finally {
+			await ws.cleanup();
+		}
+	});
 });
 
 describe("installCommand", () => {

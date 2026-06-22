@@ -255,6 +255,38 @@ describe("runToGate", () => {
 		expect(res.attempts).toBe(2);
 		expect(verifyCalls).toBe(1); // the gate ran only for the real turn, not the API-error turn
 	});
+
+	it("voids the run terminally when the agent modifies a frozen oracle (hard freeze)", async () => {
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "done", usage: { input: 1, output: 1, cacheRead: 0 } };
+			},
+		};
+		let verified = false;
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verified = true;
+				return { passed: true, errors: "", commands: [] };
+			},
+		};
+		const ws = fakeWorkspace();
+		const frozenWs: Workspace = {
+			...ws,
+			async assertFrozen() {
+				return { path: "oracle.test.ts", diff: "-  expect(true).toBe(true)\n+  expect(true).toBe(false)" };
+			},
+		};
+		const persist = recordingPersister();
+
+		const res = await runToGate({ id: "frozen", prompt: "do it" }, { agent, workspace: frozenWs, gate, persist });
+
+		expect(res.passed).toBe(false);
+		expect(res.attempts).toBe(1); // terminal on the first attempt -- never retried
+		expect(res.errors).toContain("frozen oracle");
+		expect(verified).toBe(false); // the gate never ran
+		expect(ws.committed).toEqual([]); // nothing committed
+		expect(persist.states).toContain("failed");
+	});
 });
 
 describe("classifyDispatch", () => {

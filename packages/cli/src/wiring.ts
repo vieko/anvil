@@ -26,6 +26,7 @@ export async function buildRunDeps(
 		repoRoot,
 		branch,
 		sharedFiles: options.share.length > 0 ? options.share : undefined,
+		oracleFiles: options.oracle.length > 0 ? options.oracle : undefined,
 		install: options.install,
 	});
 

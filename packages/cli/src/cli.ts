@@ -11,6 +11,8 @@ export interface RunOptions {
 	share: string[];
 	/** Install dependencies in the worktree when a lockfile is present (default true). */
 	install: boolean;
+	/** Verification oracle file(s) seeded into the worktree and frozen (agent must satisfy, not edit). */
+	oracle: string[];
 	quiet: boolean;
 	/** Stream the agent's tool calls + gate progress to stderr as it works. */
 	verbose: boolean;
@@ -42,6 +44,7 @@ export function parse(argv: string[]): Command {
 				"max-attempts": { type: "string", short: "n" },
 				verify: { type: "string", multiple: true },
 				share: { type: "string", multiple: true },
+				oracle: { type: "string", multiple: true },
 				"no-install": { type: "boolean" },
 				full: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
@@ -84,6 +87,7 @@ export function parse(argv: string[]): Command {
 					maxAttempts,
 					verify: (values.verify as string[] | undefined) ?? [],
 					share: (values.share as string[] | undefined) ?? [],
+					oracle: (values.oracle as string[] | undefined) ?? [],
 					install: !((values["no-install"] as boolean | undefined) ?? false),
 					quiet: (values.quiet as boolean | undefined) ?? false,
 					verbose: (values.verbose as boolean | undefined) ?? false,
@@ -130,5 +134,7 @@ run options:
                           (repeatable; e.g. "**/.env.local"). Off by default.
       --no-install        Skip the pre-run dependency install (on by default
                           when a lockfile is present)
+      --oracle <path>     Seed a file into the worktree and freeze it: the agent
+                          must satisfy it, never edit it (repeatable)
   -v, --verbose           Stream the agent's actions + gate progress (to stderr)
   -q, --quiet             Print only the final verdict`;

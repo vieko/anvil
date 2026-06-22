@@ -31,6 +31,13 @@ export interface WorktreeWorkspaceOptions {
 	 * is never handed to the agent. Default false; the CLI defaults it on.
 	 */
 	install?: boolean;
+	/**
+	 * Verification oracle file(s) (paths relative to the repo root) copied from
+	 * the source tree into the worktree and committed into the base, then frozen:
+	 * the agent must SATISFY them, not edit them. {@link WorktreeWorkspace.assertFrozen}
+	 * reports any modification; the engine treats it as a terminal, non-pass failure.
+	 */
+	oracleFiles?: string[];
 }
 
 // Committer identity so commits never fail in a temp repo with no global git
@@ -61,6 +68,7 @@ export class WorktreeWorkspace implements Workspace {
 	private readonly defaultTimeoutMs?: number;
 	private readonly shellPath?: string;
 	private removed = false;
+	private oraclePaths: string[] = [];
 
 	private constructor(args: {
 		cwd: string;
@@ -108,7 +116,7 @@ export class WorktreeWorkspace implements Workspace {
 			defaultTimeoutMs: opts.timeoutMs,
 			shellPath: opts.shellPath,
 		});
-		await ws.prepare({ sharedFiles: opts.sharedFiles, install: opts.install });
+		await ws.prepare({ oracleFiles: opts.oracleFiles, sharedFiles: opts.sharedFiles, install: opts.install });
 		return ws;
 	}
 
@@ -118,7 +126,10 @@ export class WorktreeWorkspace implements Workspace {
 	 * first turn. Install failure is fatal -- a broken install is never handed to
 	 * the agent.
 	 */
-	private async prepare(opts: { sharedFiles?: string[]; install?: boolean }): Promise<void> {
+	private async prepare(opts: { oracleFiles?: string[]; sharedFiles?: string[]; install?: boolean }): Promise<void> {
+		if (opts.oracleFiles?.length) {
+			this.oraclePaths = await seedOracle(this.repoRoot, this.cwd, opts.oracleFiles, (cmd, o) => this.exec(cmd, o));
+		}
 		if (opts.sharedFiles?.length) {
 			await copyShared(this.repoRoot, this.cwd, opts.sharedFiles);
 		}
@@ -167,6 +178,21 @@ export class WorktreeWorkspace implements Workspace {
 		if (add.exitCode !== 0) return false;
 		const commit = await this.exec(`git commit -m ${shellQuote(message)}`, { env: GIT_IDENTITY });
 		return commit.exitCode === 0;
+	}
+
+	/**
+	 * Oracle integrity: the first seeded oracle path whose working-tree content
+	 * differs from the seeded base commit (modified or deleted), or null when all
+	 * are intact. No-op when no oracle was seeded.
+	 */
+	async assertFrozen(): Promise<{ path: string; diff: string } | null> {
+		for (const path of this.oraclePaths) {
+			const diff = await this.exec(`git diff HEAD -- ${shellQuote(path)}`);
+			if (diff.exitCode === 0 && diff.stdout.trim() !== "") {
+				return { path, diff: diff.stdout };
+			}
+		}
+		return null;
 	}
 
 	async cleanup(): Promise<void> {
@@ -219,6 +245,42 @@ async function copyShared(srcRoot: string, destRoot: string, patterns: string[])
 /** Prune node_modules/.git when walking the source tree for shared-file globs. */
 function excludeHeavyDirs(path: string): boolean {
 	return path === "node_modules" || path === ".git" || path.includes("/node_modules") || path.includes("/.git");
+}
+
+/**
+ * Copy oracle file(s) from the source tree into the worktree and commit them
+ * into the base, so they are present at HEAD and {@link WorktreeWorkspace.assertFrozen}
+ * can diff against them. Returns the committed relative paths. A missing source
+ * file is fatal (a user error in `--oracle`).
+ */
+async function seedOracle(
+	srcRoot: string,
+	destRoot: string,
+	files: string[],
+	exec: (cmd: string, opts?: ExecOptions) => Promise<ExecResult>,
+): Promise<string[]> {
+	for (const rel of files) {
+		const dest = join(destRoot, rel);
+		await mkdir(dirname(dest), { recursive: true });
+		try {
+			await cp(join(srcRoot, rel), dest);
+		} catch {
+			throw new Error(`anvil: --oracle file not found in the source repo: ${rel}`);
+		}
+	}
+	const add = await exec(`git add ${files.map(shellQuote).join(" ")}`);
+	if (add.exitCode !== 0) {
+		throw new Error(`anvil: could not stage oracle file(s): ${(add.stderr || add.stdout).trim()}`);
+	}
+	// `git diff --cached --quiet` exits non-zero when there ARE staged changes.
+	const staged = await exec("git diff --cached --quiet");
+	if (staged.exitCode !== 0) {
+		const commit = await exec(`git commit -m ${shellQuote("anvil: seed verification oracle")}`, { env: GIT_IDENTITY });
+		if (commit.exitCode !== 0) {
+			throw new Error(`anvil: could not commit oracle file(s): ${(commit.stderr || commit.stdout).trim()}`);
+		}
+	}
+	return files;
 }
 
 async function hasLockfile(ws: Workspace): Promise<boolean> {

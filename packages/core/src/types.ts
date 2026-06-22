@@ -110,6 +110,13 @@ export interface Workspace {
 	exists(path: string): Promise<boolean>;
 	/** Commit current changes. Returns false when there was nothing to commit. */
 	commit(message: string): Promise<boolean>;
+	/**
+	 * Optional integrity check for agent-immutable oracle files seeded into the
+	 * workspace (see `--oracle`). Returns the first path that differs from its
+	 * seeded base, or null when all are intact (or none were seeded). The engine
+	 * treats a violation as a terminal, non-pass failure.
+	 */
+	assertFrozen?(): Promise<{ path: string; diff: string } | null>;
 	cleanup(): Promise<void>;
 }
 

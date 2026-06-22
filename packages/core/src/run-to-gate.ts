@@ -157,6 +157,17 @@ export async function runToGate(
 			continue;
 		}
 
+		// Hard-freeze guard: if the agent modified a frozen oracle (a user-supplied
+		// test it must SATISFY, not edit), the run is void. Terminal — never retried,
+		// never a pass (same shape as the false-pass guard: a guard may only force a
+		// non-pass, never a pass; the gate stays the sole authority on "done").
+		const frozen = await workspace.assertFrozen?.();
+		if (frozen) {
+			lastErrors = `anvil: the agent modified a frozen oracle (${frozen.path}); the run is void.\n\n${frozen.diff}`;
+			await record("failed", attempt, config, { usage: dispatch.usage, errors: lastErrors });
+			return { outcomeId: outcome.id, passed: false, attempts: attempt + 1, finalConfig: config, errors: lastErrors };
+		}
+
 		await record("verifying", attempt, config, { usage: dispatch.usage });
 		const result = await gate.verify(workspace, options.signal);
 
