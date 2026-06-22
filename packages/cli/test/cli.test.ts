@@ -7,7 +7,16 @@ describe("parse", () => {
 		expect(cmd).toEqual({
 			kind: "run",
 			outcome: "make the build green",
-			options: { dir: undefined, model: undefined, maxAttempts: undefined, verify: [], quiet: false, verbose: false },
+			options: {
+				dir: undefined,
+				model: undefined,
+				maxAttempts: undefined,
+				verify: [],
+				share: [],
+				install: true,
+				quiet: false,
+				verbose: false,
+			},
 		});
 	});
 
@@ -23,6 +32,9 @@ describe("parse", () => {
 			"npm test",
 			"--verify",
 			"tsc --noEmit",
+			"--share",
+			"**/.env.local",
+			"--no-install",
 			"-C",
 			"/tmp/repo",
 			"-q",
@@ -36,6 +48,8 @@ describe("parse", () => {
 				model: "opus",
 				maxAttempts: 5,
 				verify: ["npm test", "tsc --noEmit"],
+				share: ["**/.env.local"],
+				install: false,
 				quiet: true,
 				verbose: true,
 			},

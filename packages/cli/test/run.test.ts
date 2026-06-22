@@ -45,7 +45,14 @@ function capture(): { io: Io; lines: string[] } {
 	return { lines, io: { out: (l) => lines.push(l), err: (l) => lines.push(l) } };
 }
 
-const opts = (over: Partial<RunOptions> = {}): RunOptions => ({ verify: [], quiet: false, verbose: false, ...over });
+const opts = (over: Partial<RunOptions> = {}): RunOptions => ({
+	verify: [],
+	share: [],
+	install: true,
+	quiet: false,
+	verbose: false,
+	...over,
+});
 
 describe("executeRun", () => {
 	it("returns 0 and reports a pass", async () => {

@@ -22,7 +22,12 @@ export async function buildRunDeps(
 ): Promise<{ deps: RunDeps; workspace: WorktreeWorkspace; branch: string }> {
 	const repoRoot = resolve(dir);
 	const branch = `anvil/${outcomeId}/${Date.now().toString(36)}`;
-	const workspace = await WorktreeWorkspace.create({ repoRoot, branch });
+	const workspace = await WorktreeWorkspace.create({
+		repoRoot,
+		branch,
+		sharedFiles: options.share.length > 0 ? options.share : undefined,
+		install: options.install,
+	});
 
 	// The base model (`--model`) rides on the outcome, resolved per-dispatch by
 	// PiAgent's default resolver; the agent itself needs no model wiring here.

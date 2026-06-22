@@ -7,6 +7,10 @@ export interface RunOptions {
 	maxAttempts?: number;
 	/** Explicit gate commands; when empty the gate auto-detects. */
 	verify: string[];
+	/** Glob patterns copied into the worktree before the agent runs (e.g. "**\/.env.local"). */
+	share: string[];
+	/** Install dependencies in the worktree when a lockfile is present (default true). */
+	install: boolean;
 	quiet: boolean;
 	/** Stream the agent's tool calls + gate progress to stderr as it works. */
 	verbose: boolean;
@@ -37,6 +41,8 @@ export function parse(argv: string[]): Command {
 				model: { type: "string" },
 				"max-attempts": { type: "string", short: "n" },
 				verify: { type: "string", multiple: true },
+				share: { type: "string", multiple: true },
+				"no-install": { type: "boolean" },
 				full: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
 				verbose: { type: "boolean", short: "v" },
@@ -77,6 +83,8 @@ export function parse(argv: string[]): Command {
 					model: values.model as string | undefined,
 					maxAttempts,
 					verify: (values.verify as string[] | undefined) ?? [],
+					share: (values.share as string[] | undefined) ?? [],
+					install: !((values["no-install"] as boolean | undefined) ?? false),
 					quiet: (values.quiet as boolean | undefined) ?? false,
 					verbose: (values.verbose as boolean | undefined) ?? false,
 				},
@@ -118,5 +126,9 @@ run options:
       --model <name>      Base model: alias (sonnet/opus/haiku) or provider:id
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
+      --share <glob>      Copy file(s) into the worktree before the run
+                          (repeatable; e.g. "**/.env.local"). Off by default.
+      --no-install        Skip the pre-run dependency install (on by default
+                          when a lockfile is present)
   -v, --verbose           Stream the agent's actions + gate progress (to stderr)
   -q, --quiet             Print only the final verdict`;

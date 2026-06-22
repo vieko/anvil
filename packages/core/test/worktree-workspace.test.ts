@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WorktreeWorkspace } from "../src/node/worktree-workspace.ts";
+import { installCommand, WorktreeWorkspace } from "../src/node/worktree-workspace.ts";
 
 // Integration tests for the node-bound git adapter. These drive REAL git in a
 // temp repo (git is deterministic, not flaky) — the engine/orchestration tests
@@ -90,5 +90,35 @@ describe("WorktreeWorkspace (real git)", () => {
 		} finally {
 			await ws.cleanup();
 		}
+	});
+
+	it("copies opted-in shared files into the worktree (--share)", async () => {
+		await mkdir(join(repoRoot, "apps", "web"), { recursive: true });
+		await writeFile(join(repoRoot, "apps", "web", ".env.local"), "SECRET=shh\n");
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b5", sharedFiles: ["**/.env.local"] });
+		try {
+			expect(await ws.exists("apps/web/.env.local")).toBe(true);
+			expect(await ws.readText("apps/web/.env.local")).toBe("SECRET=shh\n");
+		} finally {
+			await ws.cleanup();
+		}
+	});
+
+	it("skips the dependency install when there is no lockfile", async () => {
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b6", install: true });
+		try {
+			expect(await ws.exists("node_modules")).toBe(false);
+		} finally {
+			await ws.cleanup();
+		}
+	});
+});
+
+describe("installCommand", () => {
+	it("maps each package manager to its install command", () => {
+		expect(installCommand("pnpm")).toBe("pnpm install --prefer-offline");
+		expect(installCommand("bun")).toBe("bun install");
+		expect(installCommand("yarn")).toBe("yarn install");
+		expect(installCommand("npm")).toBe("npm install");
 	});
 });
