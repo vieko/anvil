@@ -25,6 +25,7 @@ export async function buildRunDeps(
 	const workspace = await WorktreeWorkspace.create({
 		repoRoot,
 		branch,
+		baseRef: options.base,
 		sharedFiles: options.share.length > 0 ? options.share : undefined,
 		oracleFiles: options.oracle.length > 0 ? options.oracle : undefined,
 		install: options.install,

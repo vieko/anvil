@@ -133,6 +133,25 @@ describe("WorktreeWorkspace (real git)", () => {
 		}
 	});
 
+	it("forks from an explicit base ref regardless of the main tree's checked-out branch", async () => {
+		// Simulate a concurrent session that has the main tree on a feature branch.
+		git(["branch", "feature"]);
+		git(["checkout", "feature"]);
+		await writeFile(join(repoRoot, "feature.txt"), "feature work\n");
+		git(["add", "feature.txt"]);
+		git(["commit", "-m", "feature commit"]);
+		const mainSha = execFileSync("git", ["rev-parse", "main"], { cwd: repoRoot }).toString().trim();
+
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b9", baseRef: "main" });
+		try {
+			const head = await ws.exec("git rev-parse HEAD");
+			expect(head.stdout.trim()).toBe(mainSha); // forked from main, not the checked-out feature branch
+			expect(await ws.exists("feature.txt")).toBe(false);
+		} finally {
+			await ws.cleanup();
+		}
+	});
+
 	it("assertFrozen is a no-op when no oracle was seeded", async () => {
 		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b8" });
 		try {

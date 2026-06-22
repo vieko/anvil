@@ -3,6 +3,8 @@ import { parseArgs } from "node:util";
 /** Options for the `run` command, parsed from argv. `dir` defaults to cwd at the surface. */
 export interface RunOptions {
 	dir?: string;
+	/** Ref to fork the worktree from (default HEAD). Use "main" to fork from main regardless of the checked-out branch. */
+	base?: string;
 	model?: string;
 	maxAttempts?: number;
 	/** Explicit gate commands; when empty the gate auto-detects. */
@@ -40,6 +42,7 @@ export function parse(argv: string[]): Command {
 			allowPositionals: true,
 			options: {
 				dir: { type: "string", short: "C" },
+				base: { type: "string" },
 				model: { type: "string" },
 				"max-attempts": { type: "string", short: "n" },
 				verify: { type: "string", multiple: true },
@@ -83,6 +86,7 @@ export function parse(argv: string[]): Command {
 				outcome,
 				options: {
 					dir,
+					base: values.base as string | undefined,
 					model: values.model as string | undefined,
 					maxAttempts,
 					verify: (values.verify as string[] | undefined) ?? [],
@@ -127,6 +131,8 @@ Usage:
 
 run options:
   -C, --dir <path>        Target repository (default: current directory)
+      --base <ref>        Ref to fork the worktree from (default: HEAD; e.g.
+                          "main" to fork from main regardless of the checkout)
       --model <name>      Base model: alias (sonnet/opus/haiku) or provider:id
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)

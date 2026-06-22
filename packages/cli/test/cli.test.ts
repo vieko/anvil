@@ -9,6 +9,7 @@ describe("parse", () => {
 			outcome: "make the build green",
 			options: {
 				dir: undefined,
+				base: undefined,
 				model: undefined,
 				maxAttempts: undefined,
 				verify: [],
@@ -25,6 +26,8 @@ describe("parse", () => {
 		const cmd = parse([
 			"run",
 			"specs/auth.md",
+			"--base",
+			"main",
 			"--model",
 			"opus",
 			"-n",
@@ -48,6 +51,7 @@ describe("parse", () => {
 			outcome: "specs/auth.md",
 			options: {
 				dir: "/tmp/repo",
+				base: "main",
 				model: "opus",
 				maxAttempts: 5,
 				verify: ["npm test", "tsc --noEmit"],
