@@ -176,7 +176,11 @@ export class WorktreeWorkspace implements Workspace {
 		// so there is no concurrent work to clobber — staging everything is the intent.
 		const add = await this.exec("git add -A");
 		if (add.exitCode !== 0) return false;
-		const commit = await this.exec(`git commit -m ${shellQuote(message)}`, { env: GIT_IDENTITY });
+		// --no-verify: anvil's worktree commits are mechanism (capture/seed), not
+		// developer commits. Project pre-commit hooks (husky/lint-staged/typecheck)
+		// assume a dev's full toolchain and can be slow, flaky, or secret-dependent;
+		// correctness is the gate's job, not the hook's.
+		const commit = await this.exec(`git commit -m ${shellQuote(message)} --no-verify`, { env: GIT_IDENTITY });
 		return commit.exitCode === 0;
 	}
 
@@ -275,7 +279,10 @@ async function seedOracle(
 	// `git diff --cached --quiet` exits non-zero when there ARE staged changes.
 	const staged = await exec("git diff --cached --quiet");
 	if (staged.exitCode !== 0) {
-		const commit = await exec(`git commit -m ${shellQuote("anvil: seed verification oracle")}`, { env: GIT_IDENTITY });
+		// --no-verify: see WorktreeWorkspace.commit -- skip project pre-commit hooks.
+		const commit = await exec(`git commit -m ${shellQuote("anvil: seed verification oracle")} --no-verify`, {
+			env: GIT_IDENTITY,
+		});
 		if (commit.exitCode !== 0) {
 			throw new Error(`anvil: could not commit oracle file(s): ${(commit.stderr || commit.stdout).trim()}`);
 		}

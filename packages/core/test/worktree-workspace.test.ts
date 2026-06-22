@@ -152,6 +152,24 @@ describe("WorktreeWorkspace (real git)", () => {
 		}
 	});
 
+	it("bypasses project pre-commit hooks for its own commits (--no-verify)", async () => {
+		// A pre-commit hook that always fails -- linked worktrees share the main
+		// repo's hooks, so this fires for commits made in the worktree too.
+		const hooksDir = join(repoRoot, ".git", "hooks");
+		await mkdir(hooksDir, { recursive: true });
+		await writeFile(join(hooksDir, "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+		await writeFile(join(repoRoot, "oracle2.test.ts"), "ok\n");
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b10", oracleFiles: ["oracle2.test.ts"] });
+		try {
+			// the seed commit succeeded despite the failing hook (else assertFrozen throws/diffs)
+			expect(await ws.assertFrozen()).toBeNull();
+			await writeFile(join(ws.cwd, "work.txt"), "agent work\n");
+			expect(await ws.commit("anvil: capture")).toBe(true);
+		} finally {
+			await ws.cleanup();
+		}
+	});
+
 	it("assertFrozen is a no-op when no oracle was seeded", async () => {
 		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b8" });
 		try {
