@@ -26,9 +26,16 @@ anvil run "<outcome>" -C <repo> [--verify "<cmd>"]...
   Mirrors `git -C`.
 - `--verify "<cmd>"` — the gate command. Repeatable (all must pass). When
   omitted, anvil auto-detects test/typecheck/build from `package.json`.
+- `--oracle <file>` — seed a file you wrote (typically a failing test) into the
+  worktree and **freeze** it: the agent must satisfy it and cannot edit it.
+  Repeatable. The strongest gate (see below).
 - `--model <alias|provider:id>` — base model: `sonnet` / `opus` / `haiku`, or a
   concrete `provider:model-id`. Default `sonnet`.
 - `-n, --max-attempts <n>` — attempt cap before giving up (default `3`).
+- `--share <glob>` — copy file(s) into the worktree before the run (e.g.
+  `"**/.env.local"`); off by default. Use it when a gate needs files git ignores.
+- `--no-install` — skip the automatic pre-run dependency install (on by default
+  when a lockfile is present; deps are installed once so the agent need not).
 - `-q, --quiet` — print only the final verdict.
 
 ## Phrase the outcome as a result, not a procedure
@@ -50,7 +57,12 @@ ways:
    lockfile and runs the detected typecheck/build/test commands. Use this in a
    normal Node/TS repo.
 2. **Explicit `--verify`** (recommended when you know the check): pass the exact
-   command(s). This is the strongest signal you can give anvil.
+   command(s) — a precise signal of what "done" means.
+3. **Frozen oracle `--oracle <file>`** (the strongest gate): seed a failing test
+   you wrote into the worktree; the agent must make it pass and **cannot edit
+   it** — any change to a frozen oracle voids the run. Green then means the agent
+   satisfied a check it did not author (the red-green / test-first pattern, made
+   native). Pair it with `--verify` to run that test.
 
 ```bash
 anvil run "make the auth tests green" -C ~/app --verify "pnpm test auth"

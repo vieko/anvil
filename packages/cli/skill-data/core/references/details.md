@@ -72,6 +72,26 @@ Set the base with `--model`; the climb is automatic.
 Vercel AI Gateway (one key, `AI_GATEWAY_API_KEY`). Or pass a concrete
 `provider:model-id`. The default base is `sonnet`.
 
+## Worktree prep: deps, shared files, frozen oracles
+
+Before the agent's first turn, anvil prepares the fresh worktree:
+
+- **Dependencies** install automatically when a lockfile is present (detected
+  package manager; pnpm uses the warm store). Once, so the agent does not waste
+  an attempt discovering `node_modules` is missing. `--no-install` opts out;
+  install failure is fatal. In a large monorepo, a scoped install folded into
+  `--verify` (e.g. `pnpm install --filter <pkg>... && pnpm --filter <pkg>
+  test:unit`) plus `--no-install` can beat the whole-repo install.
+- **Shared files** (`--share <glob>`, repeatable) are copied in (symlink, copy
+  fallback) for a gate that needs a gitignored file like `**/.env.local`. Off by
+  default: handing real secrets to a worked agent widens the blast radius, so
+  opt in deliberately and prefer a deterministic gate that needs none.
+- **Frozen oracles** (`--oracle <file>`, repeatable) are copied in and committed
+  into the worktree base, then frozen: if the agent modifies or deletes one the
+  run is voided terminally (never retried, never a pass). The immutable gate
+  behind the red-green pattern -- a green run provably satisfied a test the
+  agent could not touch.
+
 ## Worktrees: inspect, merge, clean up
 
 Each run leaves a linked worktree at `<repo>-anvil/<safe-branch>` on branch
