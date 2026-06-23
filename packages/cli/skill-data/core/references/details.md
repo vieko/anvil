@@ -119,6 +119,9 @@ git -C <repo> worktree remove <repo>-anvil/<safe-branch>   # clean up
 
 ## State and idempotency
 
-State is persisted at every transition under the repo's `.anvil/runs` store
-(this is what `anvil status` reads). A run whose record is already terminal is
-recognized there, so durable state buys status + not-redoing-passed-work.
+State is persisted at every transition under a user-level state dir
+(`$XDG_STATE_HOME/anvil`, else `~/.anvil`), bucketed by repo path rather than
+inside the target tree -- so run records and transcripts never show up as
+untracked noise in the repo's `git status` (this is what `anvil status` reads).
+A run whose record is already terminal is recognized there, so durable state
+buys status + not-redoing-passed-work.
