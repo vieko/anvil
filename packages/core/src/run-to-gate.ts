@@ -100,6 +100,7 @@ export async function runToGate(
 			config,
 			sessionId,
 			errors: lastErrors,
+			branch: workspace.branch,
 			updatedAt: new Date().toISOString(),
 			...extra,
 		});

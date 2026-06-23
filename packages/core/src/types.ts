@@ -103,6 +103,12 @@ export interface ExecOptions {
 export interface Workspace {
 	/** Absolute working directory the agent and gate operate in. */
 	readonly cwd: string;
+	/**
+	 * The git branch this workspace's worktree lives on, when applicable. Recorded
+	 * into {@link RunRecord} so `status` can point to where a result lives. Optional:
+	 * non-git fakes (and the in-memory persister's callers) simply omit it.
+	 */
+	readonly branch?: string;
 	exec(command: string, opts?: ExecOptions): Promise<ExecResult>;
 	/** Read a UTF-8 text file relative to {@link cwd}. Returns null when missing or unreadable. */
 	readText(path: string): Promise<string | null>;
@@ -171,6 +177,8 @@ export interface RunRecord {
 	errors?: string;
 	sessionId?: string;
 	usage?: TokenUsage;
+	/** The worktree branch this run lives on, so `status` can point at the result. */
+	branch?: string;
 	updatedAt: string;
 }
 

@@ -18,6 +18,7 @@ function fakeAgent(): Agent {
 function fakeWorkspace(): Workspace {
 	return {
 		cwd: "/tmp/ws",
+		branch: "anvil/feat/abc",
 		async exec() {
 			return { stdout: "", stderr: "", exitCode: 0 };
 		},
@@ -53,6 +54,7 @@ const opts = (over: Partial<RunOptions> = {}): RunOptions => ({
 	scope: [],
 	quiet: false,
 	verbose: false,
+	json: false,
 	...over,
 });
 
@@ -86,6 +88,46 @@ describe("executeRun", () => {
 		const out = lines.join("\n");
 		expect(out).toContain("x feat: failed after 1 attempt");
 		expect(out).toContain("tsc: boom");
+	});
+
+	it("--json emits one machine-readable result object (pass)", async () => {
+		const out: string[] = [];
+		const err: string[] = [];
+		const io: Io = { out: (l) => out.push(l), err: (l) => err.push(l) };
+		const code = await executeRun(
+			{ id: "feat", prompt: "p", base: { model: "sonnet" } },
+			opts({ json: true }),
+			{ agent: fakeAgent(), workspace: fakeWorkspace(), gate: gate(true), persist: new MemoryStatePersister() },
+			io,
+		);
+		expect(code).toBe(0);
+		expect(out).toHaveLength(1); // exactly one JSON line on stdout, no prose
+		expect(JSON.parse(out[0])).toEqual({
+			id: "feat",
+			passed: true,
+			attempts: 1,
+			finalModel: "sonnet",
+			branch: "anvil/feat/abc",
+		});
+	});
+
+	it("--json includes errors and exits 1 on failure", async () => {
+		const out: string[] = [];
+		const io: Io = { out: (l) => out.push(l), err: () => {} };
+		const code = await executeRun(
+			{ id: "feat", prompt: "p", base: { model: "sonnet" } },
+			opts({ json: true, maxAttempts: 1 }),
+			{
+				agent: fakeAgent(),
+				workspace: fakeWorkspace(),
+				gate: gate(false, "tsc: boom"),
+				persist: new MemoryStatePersister(),
+			},
+			io,
+		);
+		expect(code).toBe(1);
+		const payload = JSON.parse(out[0]);
+		expect(payload).toMatchObject({ id: "feat", passed: false, errors: "tsc: boom" });
 	});
 });
 

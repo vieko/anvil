@@ -34,6 +34,25 @@ export const consoleIo: Io = {
  */
 export async function executeRun(outcome: Outcome, options: RunOptions, deps: RunDeps, io: Io): Promise<number> {
 	const result = await runToGate(outcome, deps, { maxAttempts: options.maxAttempts });
+
+	// Machine-readable mode: a single JSON object on stdout, regardless of verdict,
+	// so an agent/script caller can assess the outcome without scraping prose.
+	// (`costUsd` and per-attempt history are deferred -- see issue #12.)
+	if (options.json) {
+		io.out(
+			JSON.stringify({
+				id: outcome.id,
+				passed: result.passed,
+				attempts: result.attempts,
+				finalModel: result.finalConfig.model,
+				finalEffort: result.finalConfig.effort,
+				branch: deps.workspace.branch,
+				...(result.errors ? { errors: result.errors } : {}),
+			}),
+		);
+		return result.passed ? 0 : 1;
+	}
+
 	const attempts = `${result.attempts} attempt${result.attempts === 1 ? "" : "s"}`;
 	if (result.passed) {
 		io.out(`+ ${outcome.id}: passed in ${attempts}`);

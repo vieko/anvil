@@ -38,6 +38,7 @@ describe("WorktreeWorkspace (real git)", () => {
 		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "anvil/run-1" });
 		expect(existsSync(ws.cwd)).toBe(true);
 		expect(ws.cwd).not.toBe(repoRoot);
+		expect(ws.branch).toBe("anvil/run-1"); // surfaced to RunRecord via the Workspace seam
 
 		const branch = await ws.exec("git rev-parse --abbrev-ref HEAD");
 		expect(branch.stdout.trim()).toBe("anvil/run-1");

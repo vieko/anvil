@@ -64,4 +64,26 @@ describe("executeStatus", () => {
 		expect(lines[1]).toContain("x failed");
 		expect(lines[1]).toContain("older");
 	});
+
+	it("--json emits the record ledger as a JSON array (empty array when none)", async () => {
+		const empty = capture();
+		expect(await executeStatus(dir, empty.io, true)).toBe(0);
+		expect(JSON.parse(empty.lines[0])).toEqual([]);
+
+		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
+		await persist.save({
+			outcomeId: "feat",
+			state: "passed",
+			attempt: 0,
+			maxAttempts: 3,
+			config: { model: "sonnet" },
+			branch: "anvil/feat/xyz",
+			updatedAt: "2026-01-02T00:00:00Z",
+		});
+		const { io, lines } = capture();
+		expect(await executeStatus(dir, io, true)).toBe(0);
+		const records = JSON.parse(lines[0]);
+		expect(records).toHaveLength(1);
+		expect(records[0]).toMatchObject({ outcomeId: "feat", state: "passed", branch: "anvil/feat/xyz" });
+	});
 });

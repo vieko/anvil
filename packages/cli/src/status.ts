@@ -6,9 +6,14 @@ import { repoStateDirs } from "./state-paths.ts";
 const MARK: Record<string, string> = { passed: "+", failed: "x" };
 
 /** List recorded runs (newest first) from this repo's user-level state bucket. */
-export async function executeStatus(dir: string, io: Io): Promise<number> {
+export async function executeStatus(dir: string, io: Io, json = false): Promise<number> {
 	const persist = new FileStatePersister({ dir: repoStateDirs(resolve(dir)).runsDir });
 	const records = await persist.list();
+	if (json) {
+		// The full record ledger as a JSON array (empty array when nothing recorded).
+		io.out(JSON.stringify(records));
+		return 0;
+	}
 	if (records.length === 0) {
 		io.out("no runs recorded");
 		return 0;
