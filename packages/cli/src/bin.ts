@@ -31,7 +31,7 @@ async function main(): Promise<number> {
 			consoleIo.err(HELP);
 			return 2;
 		case "status":
-			return executeStatus(cmd.dir ?? process.cwd(), consoleIo);
+			return executeStatus(cmd.dir ?? process.cwd(), consoleIo, cmd.json);
 		case "skills":
 			return executeSkills(cmd.action, cmd.name, cmd.full, consoleIo);
 		case "run": {
@@ -41,7 +41,13 @@ async function main(): Promise<number> {
 				? (event: AgentActivity) => consoleIo.err(renderActivity(event))
 				: undefined;
 			const { deps, workspace, branch } = await buildRunDeps(outcome.id, dir, cmd.options, onActivity);
-			if (!cmd.options.quiet) consoleIo.out(`> ${outcome.id}\n  ${workspace.cwd}\n  branch ${branch}`);
+			// In --json mode stdout is reserved for the JSON result, so the human run
+			// header goes to stderr alongside the -v stream.
+			if (!cmd.options.quiet) {
+				const header = `> ${outcome.id}\n  ${workspace.cwd}\n  branch ${branch}`;
+				if (cmd.options.json) consoleIo.err(header);
+				else consoleIo.out(header);
+			}
 			return executeRun(outcome, cmd.options, deps, consoleIo);
 		}
 	}

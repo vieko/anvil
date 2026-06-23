@@ -68,6 +68,8 @@ const GIT_IDENTITY: Record<string, string> = {
  */
 export class WorktreeWorkspace implements Workspace {
 	readonly cwd: string;
+	/** The branch this worktree was created on. Surfaced to RunRecord via the Workspace seam. */
+	readonly branch: string;
 	/** The pi ExecutionEnv on the worktree. Handed to the agent harness (PiAgent, A3). */
 	readonly env: NodeExecutionEnv;
 	private readonly repoRoot: string;
@@ -80,6 +82,7 @@ export class WorktreeWorkspace implements Workspace {
 
 	private constructor(args: {
 		cwd: string;
+		branch: string;
 		env: NodeExecutionEnv;
 		repoRoot: string;
 		defaultEnv?: Record<string, string>;
@@ -87,6 +90,7 @@ export class WorktreeWorkspace implements Workspace {
 		shellPath?: string;
 	}) {
 		this.cwd = args.cwd;
+		this.branch = args.branch;
 		this.env = args.env;
 		this.repoRoot = args.repoRoot;
 		this.defaultEnv = args.defaultEnv;
@@ -118,6 +122,7 @@ export class WorktreeWorkspace implements Workspace {
 		const env = new NodeExecutionEnv({ cwd: worktreePath, shellPath: opts.shellPath });
 		const ws = new WorktreeWorkspace({
 			cwd: worktreePath,
+			branch: opts.branch,
 			env,
 			repoRoot,
 			defaultEnv: opts.env,

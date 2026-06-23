@@ -20,11 +20,13 @@ export interface RunOptions {
 	quiet: boolean;
 	/** Stream the agent's tool calls + gate progress to stderr as it works. */
 	verbose: boolean;
+	/** Emit a machine-readable JSON result to stdout (human chrome + `-v` go to stderr). */
+	json: boolean;
 }
 
 export type Command =
 	| { kind: "run"; outcome: string; options: RunOptions }
-	| { kind: "status"; dir?: string }
+	| { kind: "status"; dir?: string; json: boolean }
 	| { kind: "skills"; action: "list" | "get"; name?: string; full: boolean }
 	| { kind: "help" }
 	| { kind: "version" }
@@ -55,6 +57,7 @@ export function parse(argv: string[]): Command {
 				full: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
 				verbose: { type: "boolean", short: "v" },
+				json: { type: "boolean" },
 				help: { type: "boolean", short: "h" },
 				version: { type: "boolean" },
 			},
@@ -99,11 +102,12 @@ export function parse(argv: string[]): Command {
 					install: !((values["no-install"] as boolean | undefined) ?? false),
 					quiet: (values.quiet as boolean | undefined) ?? false,
 					verbose: (values.verbose as boolean | undefined) ?? false,
+					json: (values.json as boolean | undefined) ?? false,
 				},
 			};
 		}
 		case "status":
-			return { kind: "status", dir };
+			return { kind: "status", dir, json: (values.json as boolean | undefined) ?? false };
 		case "skills": {
 			const action = positionals[1] ?? "list";
 			if (action !== "list" && action !== "get") {
@@ -149,4 +153,7 @@ run options:
       --scope <glob>      Restrict which paths the agent may modify (repeatable;
                           e.g. "src/**"). A change outside voids the run.
   -v, --verbose           Stream the agent's actions + gate progress (to stderr)
-  -q, --quiet             Print only the final verdict`;
+  -q, --quiet             Print only the final verdict
+      --json              Emit a machine-readable JSON result to stdout (human
+                          chrome and -v stream go to stderr). Works for run and
+                          status.`;

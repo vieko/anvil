@@ -42,6 +42,10 @@ anvil run "<outcome>" -C <repo> [--verify "<cmd>"]...
 - `--no-install` — skip the automatic pre-run dependency install (on by default
   when a lockfile is present; deps are installed once so the agent need not).
 - `-q, --quiet` — print only the final verdict.
+- `--json` — emit a machine-readable JSON result to stdout instead of prose
+  (human chrome and the `-v` stream go to stderr). Use it when a script or
+  another agent drives anvil and must parse the outcome. Works for `run` and
+  `status`.
 
 ## Phrase the outcome as a result, not a procedure
 
@@ -118,9 +122,13 @@ test:unit"`) or pass an explicit `--verify`.
   ```bash
   git -C <repo> merge anvil/<id>/<ts>     # or cherry-pick the commit
   ```
-- `anvil status -C <repo>` lists recorded runs (state, attempt, model). Run
-  records and transcripts live in a user-level dir (`$XDG_STATE_HOME/anvil`,
+- `anvil status -C <repo>` lists recorded runs (state, attempt, model, branch).
+  Run records and transcripts live in a user-level dir (`$XDG_STATE_HOME/anvil`,
   else `~/.anvil`), not in the repo -- so they never dirty its `git status`.
+- For programmatic callers: `anvil run --json` emits
+  `{ id, passed, attempts, finalModel, finalEffort, branch, errors? }` and
+  `anvil status --json` emits the record ledger as a JSON array. Exit codes are
+  unchanged (`0` passed, non-zero failed/inconclusive).
 
 ## When NOT to use anvil
 

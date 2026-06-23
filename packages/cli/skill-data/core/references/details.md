@@ -124,4 +124,17 @@ State is persisted at every transition under a user-level state dir
 inside the target tree -- so run records and transcripts never show up as
 untracked noise in the repo's `git status` (this is what `anvil status` reads).
 A run whose record is already terminal is recognized there, so durable state
-buys status + not-redoing-passed-work.
+buys status + not-redoing-passed-work. Each record carries the worktree `branch`
+it lives on, so `anvil status` points you at the result.
+
+## Machine-readable output (`--json`)
+
+For script/agent callers, both commands take `--json` (human chrome and the
+`-v` stream move to stderr; the JSON goes to stdout, exit codes unchanged):
+
+- `anvil run --json` -> one object:
+  `{ id, passed, attempts, finalModel, finalEffort, branch, errors? }`.
+- `anvil status --json` -> the record ledger as a JSON array.
+
+Cumulative USD cost and per-attempt history are not in the payload yet (tracked
+separately); `branch` + the fields above are the stable Tier-1 contract.

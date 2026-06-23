@@ -19,6 +19,7 @@ describe("parse", () => {
 				scope: [],
 				quiet: false,
 				verbose: false,
+				json: false,
 			},
 		});
 	});
@@ -64,8 +65,14 @@ describe("parse", () => {
 				scope: ["apps/**/route.ts"],
 				quiet: true,
 				verbose: true,
+				json: false,
 			},
 		});
+	});
+
+	it("parses --json for run and status", () => {
+		expect(parse(["run", "x", "--json"])).toMatchObject({ kind: "run", options: { json: true } });
+		expect(parse(["status", "--json"])).toEqual({ kind: "status", dir: undefined, json: true });
 	});
 
 	it("errors when run has no outcome", () => {
@@ -78,8 +85,8 @@ describe("parse", () => {
 	});
 
 	it("parses status (with optional -C)", () => {
-		expect(parse(["status"])).toEqual({ kind: "status", dir: undefined });
-		expect(parse(["status", "-C", "/r"])).toEqual({ kind: "status", dir: "/r" });
+		expect(parse(["status"])).toEqual({ kind: "status", dir: undefined, json: false });
+		expect(parse(["status", "-C", "/r"])).toEqual({ kind: "status", dir: "/r", json: false });
 	});
 
 	it("handles version, help, no-args, and unknowns", () => {
