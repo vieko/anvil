@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { installCommand, WorktreeWorkspace } from "../src/node/worktree-workspace.ts";
+import { installCommand, matchesGlob, WorktreeWorkspace } from "../src/node/worktree-workspace.ts";
 
 // Integration tests for the node-bound git adapter. These drive REAL git in a
 // temp repo (git is deterministic, not flaky) — the engine/orchestration tests
@@ -177,6 +177,56 @@ describe("WorktreeWorkspace (real git)", () => {
 		} finally {
 			await ws.cleanup();
 		}
+	});
+
+	it("voids the run when the agent edits outside --scope, allows in-scope edits", async () => {
+		await mkdir(join(repoRoot, "src"), { recursive: true });
+		await writeFile(join(repoRoot, "src", "a.ts"), "export const a = 1;\n");
+		await writeFile(join(repoRoot, "README.md"), "# repo\n");
+		git(["add", "-A"]);
+		git(["commit", "-m", "seed src"]);
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b11", scopeGlobs: ["src/**"] });
+		try {
+			// no changes yet -> in scope (null)
+			expect(await ws.assertScope()).toBeNull();
+
+			// modify an in-scope tracked file + add a new in-scope file -> still null
+			await writeFile(join(ws.cwd, "src", "a.ts"), "export const a = 2;\n");
+			await writeFile(join(ws.cwd, "src", "b.ts"), "export const b = 3;\n");
+			expect(await ws.assertScope()).toBeNull();
+
+			// touch a file outside scope -> a violation naming it
+			await writeFile(join(ws.cwd, "README.md"), "# repo edited\n");
+			const violation = await ws.assertScope();
+			expect(violation?.outside).toEqual(["README.md"]);
+		} finally {
+			await ws.cleanup();
+		}
+	});
+
+	it("assertScope is a no-op when no scope was set", async () => {
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b12" });
+		try {
+			await writeFile(join(ws.cwd, "anything.txt"), "x\n");
+			expect(await ws.assertScope()).toBeNull();
+		} finally {
+			await ws.cleanup();
+		}
+	});
+});
+
+describe("matchesGlob", () => {
+	it("spans path segments with **, stays within a segment with *", () => {
+		expect(matchesGlob("src/**", "src/a/b/route.ts")).toBe(true);
+		expect(matchesGlob("src/**", "src/route.ts")).toBe(true);
+		expect(matchesGlob("src/**", "lib/route.ts")).toBe(false);
+		expect(matchesGlob("apps/x/**/route.ts", "apps/x/a/route.ts")).toBe(true);
+		expect(matchesGlob("apps/x/**/route.ts", "apps/x/route.ts")).toBe(true);
+		expect(matchesGlob("apps/x/**/route.ts", "apps/x/a/page.ts")).toBe(false);
+		expect(matchesGlob("src/*.ts", "src/a.ts")).toBe(true);
+		expect(matchesGlob("src/*.ts", "src/a/b.ts")).toBe(false);
+		expect(matchesGlob("src/a.ts", "src/a.ts")).toBe(true);
+		expect(matchesGlob("src/a.ts", "src/a.tsx")).toBe(false);
 	});
 });
 

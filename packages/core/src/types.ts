@@ -117,6 +117,14 @@ export interface Workspace {
 	 * treats a violation as a terminal, non-pass failure.
 	 */
 	assertFrozen?(): Promise<{ path: string; diff: string } | null>;
+	/**
+	 * Optional blast-radius guard for `--scope`: returns the agent-modified paths
+	 * that fall OUTSIDE the configured scope globs, or null when every change is in
+	 * scope (or no scope was set). The mirror of {@link assertFrozen} -- freeze =
+	 * files the agent must NOT touch; scope = the only files it MAY touch. The
+	 * engine treats a non-empty result as a terminal, non-pass failure.
+	 */
+	assertScope?(): Promise<{ outside: string[] } | null>;
 	cleanup(): Promise<void>;
 }
 

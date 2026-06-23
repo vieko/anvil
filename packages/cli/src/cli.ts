@@ -15,6 +15,8 @@ export interface RunOptions {
 	install: boolean;
 	/** Verification oracle file(s) seeded into the worktree and frozen (agent must satisfy, not edit). */
 	oracle: string[];
+	/** Blast-radius globs: the only paths the agent may modify; a change outside voids the run. */
+	scope: string[];
 	quiet: boolean;
 	/** Stream the agent's tool calls + gate progress to stderr as it works. */
 	verbose: boolean;
@@ -48,6 +50,7 @@ export function parse(argv: string[]): Command {
 				verify: { type: "string", multiple: true },
 				share: { type: "string", multiple: true },
 				oracle: { type: "string", multiple: true },
+				scope: { type: "string", multiple: true },
 				"no-install": { type: "boolean" },
 				full: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
@@ -92,6 +95,7 @@ export function parse(argv: string[]): Command {
 					verify: (values.verify as string[] | undefined) ?? [],
 					share: (values.share as string[] | undefined) ?? [],
 					oracle: (values.oracle as string[] | undefined) ?? [],
+					scope: (values.scope as string[] | undefined) ?? [],
 					install: !((values["no-install"] as boolean | undefined) ?? false),
 					quiet: (values.quiet as boolean | undefined) ?? false,
 					verbose: (values.verbose as boolean | undefined) ?? false,
@@ -142,5 +146,7 @@ run options:
                           when a lockfile is present)
       --oracle <path>     Seed a file into the worktree and freeze it: the agent
                           must satisfy it, never edit it (repeatable)
+      --scope <glob>      Restrict which paths the agent may modify (repeatable;
+                          e.g. "src/**"). A change outside voids the run.
   -v, --verbose           Stream the agent's actions + gate progress (to stderr)
   -q, --quiet             Print only the final verdict`;

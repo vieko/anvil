@@ -29,6 +29,11 @@ anvil run "<outcome>" -C <repo> [--verify "<cmd>"]...
 - `--oracle <file>` — seed a file you wrote (typically a failing test) into the
   worktree and **freeze** it: the agent must satisfy it and cannot edit it.
   Repeatable. The strongest gate (see below).
+- `--scope <glob>` — restrict which paths the agent may modify (repeatable;
+  e.g. `"apps/api/**"`). A change outside the scope **voids the run**. The
+  mirror of `--oracle`: freeze guards files the agent must *not* touch; scope
+  bounds the set it *may* touch. Use it to cap blast radius when the gate
+  can't fully specify the contract.
 - `--model <alias|provider:id>` — base model: `sonnet` / `opus` / `haiku`, or a
   concrete `provider:model-id`. Default `sonnet`.
 - `-n, --max-attempts <n>` — attempt cap before giving up (default `3`).
@@ -63,6 +68,11 @@ ways:
    it** — any change to a frozen oracle voids the run. Green then means the agent
    satisfied a check it did not author (the red-green / test-first pattern, made
    native). Pair it with `--verify` to run that test.
+
+A frozen oracle is only as good as the contract it encodes; if it under-specifies,
+a green run can still be wrong (an agent can "fix" an unrelated file in a way the
+gate doesn't see). Add `--scope <glob>` to bound the blast radius — the run voids
+if the agent edits anything outside the paths you name.
 
 ```bash
 anvil run "make the auth tests green" -C ~/app --verify "pnpm test auth"

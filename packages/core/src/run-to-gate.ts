@@ -168,6 +168,19 @@ export async function runToGate(
 			return { outcomeId: outcome.id, passed: false, attempts: attempt + 1, finalConfig: config, errors: lastErrors };
 		}
 
+		// Blast-radius guard (#8): with --scope set, the agent may only modify files
+		// inside the scope globs. A change outside is void -- terminal, never a pass
+		// (same shape as the frozen guard). This bounds the damage when the oracle
+		// under-specifies the contract: the agent can't quietly "fix" unrelated files
+		// (the gong-ingest overreach in the GTMENG-969 dogfood is the motivating case).
+		const scope = await workspace.assertScope?.();
+		if (scope) {
+			const paths = scope.outside.map((p) => `  ${p}`).join("\n");
+			lastErrors = `anvil: the agent modified ${scope.outside.length} file(s) outside --scope; the run is void.\n\n${paths}`;
+			await record("failed", attempt, config, { usage: dispatch.usage, errors: lastErrors });
+			return { outcomeId: outcome.id, passed: false, attempts: attempt + 1, finalConfig: config, errors: lastErrors };
+		}
+
 		await record("verifying", attempt, config, { usage: dispatch.usage });
 		const result = await gate.verify(workspace, options.signal);
 

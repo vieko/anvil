@@ -28,6 +28,7 @@ export async function buildRunDeps(
 		baseRef: options.base,
 		sharedFiles: options.share.length > 0 ? options.share : undefined,
 		oracleFiles: options.oracle.length > 0 ? options.oracle : undefined,
+		scopeGlobs: options.scope.length > 0 ? options.scope : undefined,
 		install: options.install,
 	});
 

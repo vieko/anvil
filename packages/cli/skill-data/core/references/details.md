@@ -72,7 +72,7 @@ Set the base with `--model`; the climb is automatic.
 Vercel AI Gateway (one key, `AI_GATEWAY_API_KEY`). Or pass a concrete
 `provider:model-id`. The default base is `sonnet`.
 
-## Worktree prep: deps, shared files, frozen oracles
+## Worktree prep: deps, shared files, frozen oracles, scope
 
 Before the agent's first turn, anvil prepares the fresh worktree:
 
@@ -91,6 +91,15 @@ Before the agent's first turn, anvil prepares the fresh worktree:
   run is voided terminally (never retried, never a pass). The immutable gate
   behind the red-green pattern -- a green run provably satisfied a test the
   agent could not touch.
+- **Scope** (`--scope <glob>`, repeatable) bounds which paths the agent may
+  modify. After the agent's turn, anvil diffs the worktree against its base; a
+  change to any path matching none of the scope globs voids the run terminally
+  (same shape as the frozen-oracle guard). The mirror of `--oracle`: freeze
+  guards files the agent must *not* touch; scope bounds the set it *may* touch.
+  Reach for it when the gate can't fully encode the contract -- it caps the
+  blast radius so an agent can't quietly "fix" an unrelated, already-correct
+  file in a way the gate doesn't catch (the failure mode that motivated it: a
+  worked agent downgrading a route's auth that the structural gate accepted).
 
 ## Worktrees: inspect, merge, clean up
 

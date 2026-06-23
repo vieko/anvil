@@ -50,6 +50,7 @@ const opts = (over: Partial<RunOptions> = {}): RunOptions => ({
 	share: [],
 	install: true,
 	oracle: [],
+	scope: [],
 	quiet: false,
 	verbose: false,
 	...over,

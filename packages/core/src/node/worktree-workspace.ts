@@ -38,6 +38,13 @@ export interface WorktreeWorkspaceOptions {
 	 * reports any modification; the engine treats it as a terminal, non-pass failure.
 	 */
 	oracleFiles?: string[];
+	/**
+	 * Blast-radius globs (relative to the repo root) for `--scope`. When set, the
+	 * agent may only modify files matching one of these; {@link WorktreeWorkspace.assertScope}
+	 * reports any change outside them and the engine treats it as a terminal,
+	 * non-pass failure. The mirror of {@link oracleFiles}'s freeze.
+	 */
+	scopeGlobs?: string[];
 }
 
 // Committer identity so commits never fail in a temp repo with no global git
@@ -69,6 +76,7 @@ export class WorktreeWorkspace implements Workspace {
 	private readonly shellPath?: string;
 	private removed = false;
 	private oraclePaths: string[] = [];
+	private scopeGlobs: string[] = [];
 
 	private constructor(args: {
 		cwd: string;
@@ -116,6 +124,7 @@ export class WorktreeWorkspace implements Workspace {
 			defaultTimeoutMs: opts.timeoutMs,
 			shellPath: opts.shellPath,
 		});
+		ws.scopeGlobs = opts.scopeGlobs ?? [];
 		await ws.prepare({ oracleFiles: opts.oracleFiles, sharedFiles: opts.sharedFiles, install: opts.install });
 		return ws;
 	}
@@ -197,6 +206,39 @@ export class WorktreeWorkspace implements Workspace {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Blast-radius check: the agent-modified paths (working tree, vs the base the
+	 * worktree forked from) that match NONE of the configured scope globs, or null
+	 * when every change is in scope (or no scope was set). The seeded oracle is
+	 * committed into the base, so it never appears here -- only the agent's own
+	 * uncommitted edits are scoped.
+	 */
+	async assertScope(): Promise<{ outside: string[] } | null> {
+		if (this.scopeGlobs.length === 0) return null;
+		const changed = await this.changedPaths();
+		const outside = changed.filter((p) => !this.scopeGlobs.some((g) => matchesGlob(g, p)));
+		return outside.length > 0 ? { outside } : null;
+	}
+
+	/** Every path touched in the worktree (modified, added, deleted, renamed, untracked). */
+	private async changedPaths(): Promise<string[]> {
+		const res = await this.exec("git status --porcelain");
+		if (res.exitCode !== 0) return [];
+		const paths = new Set<string>();
+		for (const line of res.stdout.split("\n")) {
+			if (line.trim() === "") continue;
+			const body = line.slice(3); // strip the "XY " status prefix
+			const arrow = body.indexOf(" -> "); // rename/copy: both endpoints count
+			if (arrow >= 0) {
+				paths.add(unquoteGitPath(body.slice(0, arrow)));
+				paths.add(unquoteGitPath(body.slice(arrow + 4)));
+			} else {
+				paths.add(unquoteGitPath(body));
+			}
+		}
+		return [...paths];
 	}
 
 	async cleanup(): Promise<void> {
@@ -295,6 +337,44 @@ async function hasLockfile(ws: Workspace): Promise<boolean> {
 		if (await ws.exists(f)) return true;
 	}
 	return false;
+}
+
+/** git status --porcelain double-quotes paths with special chars and C-escapes them; undo that. */
+function unquoteGitPath(path: string): string {
+	if (path.startsWith('"') && path.endsWith('"')) {
+		return path.slice(1, -1).replace(/\\(.)/g, "$1");
+	}
+	return path;
+}
+
+/**
+ * Match a repo-relative path against a simple glob: `**` spans path segments,
+ * `*` matches within a segment, `?` one non-slash char. Deterministic and
+ * fs-free (unlike node's fs.glob), so --scope matching needs no disk walk.
+ */
+export function matchesGlob(glob: string, path: string): boolean {
+	let re = "^";
+	for (let i = 0; i < glob.length; i++) {
+		const c = glob[i];
+		if (c === "*") {
+			if (glob[i + 1] === "*") {
+				i++;
+				if (glob[i + 1] === "/") {
+					re += "(?:[^/]+/)*"; // "**/" -> zero or more path segments
+					i++;
+				} else {
+					re += ".*"; // trailing/bare "**" -> anything, including slashes
+				}
+			} else {
+				re += "[^/]*"; // "*" -> within one segment
+			}
+		} else if (c === "?") {
+			re += "[^/]";
+		} else {
+			re += c.replace(/[.+^${}()|[\]\\/]/g, "\\$&");
+		}
+	}
+	return new RegExp(`${re}$`).test(path);
 }
 
 /** The install command for a package manager. pnpm prefers the warm store (fast in a fresh worktree). */

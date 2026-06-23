@@ -287,6 +287,39 @@ describe("runToGate", () => {
 		expect(ws.committed).toEqual([]); // nothing committed
 		expect(persist.states).toContain("failed");
 	});
+
+	it("voids the run terminally when the agent modifies a file outside --scope (blast radius)", async () => {
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "done", usage: { input: 1, output: 1, cacheRead: 0 } };
+			},
+		};
+		let verified = false;
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verified = true;
+				return { passed: true, errors: "", commands: [] };
+			},
+		};
+		const ws = fakeWorkspace();
+		const scopedWs: Workspace = {
+			...ws,
+			async assertScope() {
+				return { outside: ["lib/other-route.ts", "README.md"] };
+			},
+		};
+		const persist = recordingPersister();
+
+		const res = await runToGate({ id: "scoped", prompt: "do it" }, { agent, workspace: scopedWs, gate, persist });
+
+		expect(res.passed).toBe(false);
+		expect(res.attempts).toBe(1); // terminal on the first attempt -- never retried
+		expect(res.errors).toContain("outside --scope");
+		expect(res.errors).toContain("lib/other-route.ts");
+		expect(verified).toBe(false); // the gate never ran
+		expect(ws.committed).toEqual([]); // nothing committed
+		expect(persist.states).toContain("failed");
+	});
 });
 
 describe("classifyDispatch", () => {
