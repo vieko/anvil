@@ -69,6 +69,43 @@ describe("detectNodeTs", () => {
 		expect(await detectNodeTs(ws)).toEqual([{ cmd: "npm run test:unit", label: "test" }]);
 	});
 
+	it("prefers a deterministic test:unit over a plain test that chains e2e (issue #4)", async () => {
+		const ws = fakeWorkspace({
+			files: {
+				"package.json": JSON.stringify({
+					scripts: {
+						"test:unit": "vitest run",
+						test: "vitest run && vitest run --config integration && playwright test",
+					},
+				}),
+			},
+		});
+		expect(await detectNodeTs(ws)).toEqual([{ cmd: "npm run test:unit", label: "test" }]);
+	});
+
+	it("prefers test:ci over plain test when no test:unit exists", async () => {
+		const ws = fakeWorkspace({
+			files: {
+				"package.json": JSON.stringify({ scripts: { "test:ci": "vitest run", test: "vitest && playwright test" } }),
+			},
+		});
+		expect(await detectNodeTs(ws)).toEqual([{ cmd: "npm run test:ci", label: "test" }]);
+	});
+
+	it("prefers test:unit over test:ci when both exist", async () => {
+		const ws = fakeWorkspace({
+			files: { "package.json": JSON.stringify({ scripts: { "test:unit": "a", "test:ci": "b" } }) },
+		});
+		expect(await detectNodeTs(ws)).toEqual([{ cmd: "npm run test:unit", label: "test" }]);
+	});
+
+	it("falls back to plain test only when no deterministic variant exists", async () => {
+		const ws = fakeWorkspace({
+			files: { "package.json": JSON.stringify({ scripts: { test: "vitest run" } }) },
+		});
+		expect(await detectNodeTs(ws)).toEqual([{ cmd: "npm test", label: "test" }]);
+	});
+
 	it("returns nothing when there is no package.json", async () => {
 		expect(await detectNodeTs(fakeWorkspace())).toEqual([]);
 	});

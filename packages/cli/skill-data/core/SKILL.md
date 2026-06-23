@@ -96,8 +96,10 @@ worked agent real secrets widens the blast radius. Leave those to humans / CI
 after merge.
 
 In a monorepo a package's plain `test` script may chain unit + integration +
-e2e — prefer the specific deterministic script (e.g. `test:unit`) or an explicit
-`--verify`.
+e2e. Auto-detection guards against this by preferring a deterministic
+`test:unit` / `test:ci` script over plain `test`; if a package has only a
+chained `test`, name the deterministic script (e.g. `--verify "pnpm run
+test:unit"`) or pass an explicit `--verify`.
 
 ## What happens
 

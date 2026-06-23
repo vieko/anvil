@@ -25,8 +25,10 @@ From `package.json` + lockfile, in order:
 - **typecheck** — `<pm> exec tsc --noEmit` (or `npx tsc --noEmit`) when
   `typescript` is a dependency.
 - **build** — `<pm> run build` when a `build` script exists.
-- **test** — `<pm> test`, else `<pm> run test:unit`, else `test:ci`, when a
-  matching script exists.
+- **test** — a deterministic variant first: `<pm> run test:unit`, else
+  `<pm> run test:ci`, else plain `<pm> test`, when a matching script exists.
+  The deterministic tier wins so auto-detection does not pull in a `test`
+  script that chains integration/e2e (see the Trap below).
 
 `<pm>` is detected from the lockfile: `bun.lock(b)` -> bun, `pnpm-lock.yaml` ->
 pnpm, `yarn.lock` -> yarn, else npm. Prefer `--verify` when you know the exact
@@ -49,9 +51,11 @@ effectively a CI environment. Gate on the tier built for that:
 
 Trap: a package's plain `test` script may chain all three tiers (e.g.
 `vitest && vitest --config integration && playwright test`). Auto-detection
-prefers `test`, so it can pull in e2e. When that is a risk, name the
-deterministic script directly (`--verify "<pm> run test:unit"`) or pass an
-explicit `--verify`.
+guards against this by preferring a deterministic `test:unit` / `test:ci`
+variant over plain `test`, falling back to `test` only when no such variant
+exists. If a package has *only* a chained `test`, name the deterministic
+script directly (`--verify "<pm> run test:unit"`) or pass an explicit
+`--verify`.
 
 ## Escalation ladder
 

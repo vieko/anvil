@@ -211,9 +211,19 @@ function tscCommand(pm: PackageManager): string {
 	}
 }
 
+// Test-script precedence (issue #4): a CI-deterministic variant beats plain
+// `test`. In real monorepos a package's `test` chains the full pyramid
+// (e.g. `vitest run && vitest run --config integration && playwright test`);
+// auto-gating on it drags a browser + running app + real secrets into anvil's
+// fresh, secret-light worktree, so the gate fails or flakes on environment
+// noise instead of the change -- and the escalation ladder burns attempts on it.
+// Prefer the narrow deterministic tier (what CI actually gates on) and fall
+// back to plain `test` only when no such variant exists. Order: `test:unit`
+// (purest, fewest infra needs) before `test:ci` (may chain integration) before
+// plain `test`. `--verify` remains the explicit escape hatch.
 function pickTestScript(scripts: Record<string, string>): string | null {
-	if (scripts.test && !scripts.test.includes("no test specified")) return "test";
 	if (scripts["test:unit"]) return "test:unit";
 	if (scripts["test:ci"]) return "test:ci";
+	if (scripts.test && !scripts.test.includes("no test specified")) return "test";
 	return null;
 }
