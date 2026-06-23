@@ -118,7 +118,9 @@ test:unit"`) or pass an explicit `--verify`.
   ```bash
   git -C <repo> merge anvil/<id>/<ts>     # or cherry-pick the commit
   ```
-- `anvil status -C <repo>` lists recorded runs (state, attempt, model).
+- `anvil status -C <repo>` lists recorded runs (state, attempt, model). Run
+  records and transcripts live in a user-level dir (`$XDG_STATE_HOME/anvil`,
+  else `~/.anvil`), not in the repo -- so they never dirty its `git status`.
 
 ## When NOT to use anvil
 

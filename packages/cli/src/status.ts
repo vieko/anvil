@@ -1,12 +1,13 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { FileStatePersister } from "@anvil/core/node";
 import type { Io } from "./run.ts";
+import { repoStateDirs } from "./state-paths.ts";
 
 const MARK: Record<string, string> = { passed: "+", failed: "x" };
 
-/** List recorded runs (newest first) from the repo's `.anvil/runs` store. */
+/** List recorded runs (newest first) from this repo's user-level state bucket. */
 export async function executeStatus(dir: string, io: Io): Promise<number> {
-	const persist = new FileStatePersister({ dir: join(resolve(dir), ".anvil", "runs") });
+	const persist = new FileStatePersister({ dir: repoStateDirs(resolve(dir)).runsDir });
 	const records = await persist.list();
 	if (records.length === 0) {
 		io.out("no runs recorded");
