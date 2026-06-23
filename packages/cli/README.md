@@ -24,7 +24,9 @@ run options:
 Each run provisions an isolated git worktree on a fresh `anvil/<id>/<ts>`
 branch: the agent edits it, the gate verifies it, and a pass commits there.
 The worktree is left in place so you can inspect or merge the result. State is
-recorded under the repo's `.anvil/runs` so `anvil status` can report it.
+recorded under a user-level dir (`$XDG_STATE_HOME/anvil`, else `~/.anvil`),
+bucketed by repo path -- not inside the target tree -- so `anvil status` can
+report it without polluting the repo's `git status`.
 
 Inference defaults to the Vercel AI Gateway (`AI_GATEWAY_API_KEY`); see
 `docs/design.md` §5.
@@ -35,7 +37,8 @@ Inference defaults to the Vercel AI Gateway (`AI_GATEWAY_API_KEY`); see
 src/
   cli.ts      pure argv parser (parseArgs) -> Command
   run.ts      executeRun (injectable deps) + resolveOutcome  (unit-testable)
-  status.ts   executeStatus over the .anvil/runs store
+  status.ts   executeStatus over the per-repo state bucket
+  state-paths.ts  where anvil keeps run records + transcripts (user-level)
   wiring.ts   buildRunDeps — the real node seams (worktree, pi agent, gate)
   bin.ts      the `anvil` entry point
 ```
