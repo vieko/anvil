@@ -49,6 +49,20 @@ Anvil implements exactly two of the six workflow patterns:
 hard-won behavior (gate/verify and worktree edge-case tests get ported, not
 rediscovered). Anvil does not reproduce forge's over-extension.
 
+**Convergent validation (the `/goal` foil).** Codex and Claude Code have since
+shipped a `/goal` command — declare an outcome, the agent loops until it's met.
+Two vendors independently arriving at *define outcome → work → check → loop*
+confirms the spine. Neither made the check deterministic: Codex lets the working
+model self-attest completion; Claude Code has a separate model judge the chat
+transcript (it runs no commands). Both rest "done" on a model's judgment —
+exactly the authority the gate refuses. The `/goal` commands are the standing
+foil for this scope lock: they show what the broad-but-weak model-judge buys
+(any natural-language outcome) and what it costs (a model being convinced),
+which is the breadth anvil declines in v1 (the deferred selection layer, not the
+gate, is its only sanctioned home — §2). The lesson generalizes to how anvil
+itself is judged: a model's confidence in its own output is not evidence — only
+verification is.
+
 ## 3. The four seams
 
 The engine is built from four injected interfaces (`packages/core/src/types.ts`).

@@ -57,6 +57,26 @@ The gate gives anvil its leverage; spend it on a clear *result*, not steps.
 - AVOID: `open src/slug.ts and add a regex` — a procedure. anvil will still run,
   but you have thrown away the gate: say what must be **true**.
 
+## Anatomy of a strong outcome
+
+A delegable outcome usually names four things. anvil makes each a **mechanism**,
+not prose for the agent to interpret — the verification surface in particular is
+a command, not a sentence:
+
+- **Result** — what must be true when done. The prompt (`"<outcome>"`).
+- **Verification surface** — the command that proves it. The gate (`--verify`,
+  or auto-detection; `--oracle` for a frozen check).
+- **Constraints** — what must not regress on the way there. Add them as extra
+  gate checks: a refactor pairs its test with `--verify "tsc --noEmit"`, so
+  "done" also means "still typechecks".
+- **Boundaries** — which paths the agent may touch. `--scope <glob>` voids the
+  run on any edit outside them; `--oracle` freezes files it must not edit.
+
+anvil owns the rest of the contract for you: the **iteration policy** (escalate
+the model/effort each retry, feeding the gate's errors back) and the **stop
+condition** (gate passes, or the attempt cap / an inconclusive gate) are the
+engine's job, not yours to specify.
+
 ## The gate is the authority — give it a real check
 
 anvil believes the work is done only when the gate passes. Set it one of two
