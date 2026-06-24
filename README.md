@@ -23,6 +23,13 @@ an isolated worktree** — the agent can't talk its way to green, and a run can'
 stomp your working tree. The closest competitor is `claude -p "/goal …"`; the
 difference is the gate.
 
+The gate is not the end of judgment but a *verifiable* one: it moves the call
+from the agent (which can be convinced) to a command you wrote (which can't),
+and the price is that you must be able to express "done" as a check. So anvil is
+**narrower** than `/goal` and more trustworthy on what it accepts — a model
+judge takes any natural-language outcome; anvil declines the ones with no
+command-check (no gate, no guarantee).
+
 ## Layout
 
 ```

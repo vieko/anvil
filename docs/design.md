@@ -63,6 +63,18 @@ gate, is its only sanctioned home — §2). The lesson generalizes to how anvil
 itself is judged: a model's confidence in its own output is not evidence — only
 verification is.
 
+Two honest limits keep this from being a free lunch. First, the gate
+**relocates** judgment, it does not remove it: the call moves from the agent to
+the verification command the spec author writes, and an under-specified check
+passes work that is still wrong. The discipline anvil enforces is making that
+judgment *verifiable and explicit*, not making it disappear. Second, convergence
+means the loop itself is now commodity — a vendor could bolt "require exit 0"
+onto a `/goal` loop in a day. anvil's durable edge is therefore not the
+gate-as-idea but the gate-as-**implementation**: the flake-resistance,
+inconclusive-vs-failure accounting, false-pass guards, and worktree edge cases
+mined from forge (§7, §8) — the part that is hard to get right, not the part
+that is easy to describe.
+
 ## 3. The four seams
 
 The engine is built from four injected interfaces (`packages/core/src/types.ts`).
