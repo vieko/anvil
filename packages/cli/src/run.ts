@@ -37,7 +37,14 @@ export async function executeRun(outcome: Outcome, options: RunOptions, deps: Ru
 
 	// Machine-readable mode: a single JSON object on stdout, regardless of verdict,
 	// so an agent/script caller can assess the outcome without scraping prose.
-	// (`costUsd` and per-attempt history are deferred -- see issue #12.)
+	//
+	// Beyond the verdict, the payload carries gate *provenance* (#14) -- how strong
+	// the green is -- so an orchestrating caller can route trust as a rule, not a
+	// guess: a strong green (explicit verify + a held oracle + a held scope) is
+	// safe to integrate blind; a weak green (auto-detected, no oracle, no scope)
+	// warrants human review. `oracle`/`scope` are true when the guard was enforced;
+	// since any violation voids the run, on a pass they also mean it *held*.
+	// (`costUsd` and per-attempt history are still deferred -- see issue #12.)
 	if (options.json) {
 		io.out(
 			JSON.stringify({
@@ -47,6 +54,12 @@ export async function executeRun(outcome: Outcome, options: RunOptions, deps: Ru
 				finalModel: result.finalConfig.model,
 				finalEffort: result.finalConfig.effort,
 				branch: deps.workspace.branch,
+				gate: {
+					commands: result.gateCommands ?? [],
+					source: options.verify.length > 0 ? "explicit" : "autodetect",
+				},
+				oracle: options.oracle.length > 0,
+				scope: options.scope.length > 0,
 				...(result.errors ? { errors: result.errors } : {}),
 			}),
 		);

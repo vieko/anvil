@@ -40,6 +40,11 @@ const passingGate: Gate = {
 	},
 };
 
+/** A command result stub, just enough for the gate-provenance assertions. */
+function cmd(c: string, passed: boolean): GateResult["commands"][number] {
+	return { cmd: c, passed, output: "", durationMs: 1 };
+}
+
 describe("runToGate", () => {
 	it("passes on the first attempt when the gate is green, and commits", async () => {
 		const agent: Agent = {
@@ -59,6 +64,57 @@ describe("runToGate", () => {
 		expect(res.attempts).toBe(1);
 		expect(ws.committed).toEqual(["anvil: t1"]);
 		expect(persist.states).toEqual(["running", "verifying", "passed"]);
+	});
+
+	it("surfaces the gate's command provenance on the result, on pass and on give-up", async () => {
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "done" };
+			},
+		};
+		const greenGate: Gate = {
+			async verify(): Promise<GateResult> {
+				return { passed: true, errors: "", commands: [cmd("tsc --noEmit", true), cmd("pnpm test:unit", true)] };
+			},
+		};
+		const pass = await runToGate(
+			{ id: "prov-pass", prompt: "p" },
+			{ agent, workspace: fakeWorkspace(), gate: greenGate, persist: recordingPersister() },
+		);
+		expect(pass.gateCommands).toEqual(["tsc --noEmit", "pnpm test:unit"]);
+
+		const redGate: Gate = {
+			async verify(): Promise<GateResult> {
+				return { passed: false, errors: "boom", commands: [cmd("tsc --noEmit", false)] };
+			},
+		};
+		const fail = await runToGate(
+			{ id: "prov-fail", prompt: "p" },
+			{ agent, workspace: fakeWorkspace(), gate: redGate, persist: recordingPersister() },
+			{ maxAttempts: 1 },
+		);
+		expect(fail.passed).toBe(false);
+		expect(fail.gateCommands).toEqual(["tsc --noEmit"]); // the last verify's commands, even on give-up
+	});
+
+	it("omits gateCommands when a guard voids the run before the gate ever runs", async () => {
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "done", usage: { input: 1, output: 1, cacheRead: 0 } };
+			},
+		};
+		const frozenWs: Workspace = {
+			...fakeWorkspace(),
+			async assertFrozen() {
+				return { path: "oracle.test.ts", diff: "-x\n+y" };
+			},
+		};
+		const res = await runToGate(
+			{ id: "prov-void", prompt: "p" },
+			{ agent, workspace: frozenWs, gate: passingGate, persist: recordingPersister() },
+		);
+		expect(res.passed).toBe(false);
+		expect(res.gateCommands).toBeUndefined(); // the gate never ran -- no provenance to report
 	});
 
 	it("loops, escalates model AND effort, and feeds errors back until the gate goes green", async () => {

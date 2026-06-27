@@ -47,6 +47,13 @@ export interface RunToGateResult {
 	attempts: number;
 	finalConfig: ModelEffort;
 	errors?: string;
+	/**
+	 * The command strings the gate ran on its final verify -- the *provenance* of
+	 * the verdict, so a caller can tell what actually proved (or failed to prove)
+	 * the outcome. Absent when the gate never ran: a guard-voided run (frozen
+	 * oracle / out-of-scope edit) or a dispatch that never reached verification.
+	 */
+	gateCommands?: string[];
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -85,6 +92,7 @@ export async function runToGate(
 	let prompt = outcome.prompt;
 	let lastErrors: string | undefined;
 	let sessionId: string | undefined;
+	let gateCommands: string[] | undefined;
 
 	const record = (
 		state: RunState,
@@ -184,11 +192,12 @@ export async function runToGate(
 
 		await record("verifying", attempt, config, { usage: dispatch.usage });
 		const result = await gate.verify(workspace, options.signal);
+		gateCommands = result.commands.map((c) => c.cmd);
 
 		if (result.passed) {
 			await workspace.commit(`anvil: ${outcome.id}`);
 			await record("passed", attempt, config, { usage: dispatch.usage, errors: undefined });
-			return { outcomeId: outcome.id, passed: true, attempts: attempt + 1, finalConfig: config };
+			return { outcomeId: outcome.id, passed: true, attempts: attempt + 1, finalConfig: config, gateCommands };
 		}
 
 		// An inconclusive gate is not a real failure: re-verify on the next
@@ -212,6 +221,7 @@ export async function runToGate(
 		attempts: maxAttempts,
 		finalConfig: escalate(base, maxAttempts - 1),
 		errors: lastErrors,
+		gateCommands,
 	};
 }
 

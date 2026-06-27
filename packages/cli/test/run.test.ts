@@ -102,12 +102,45 @@ describe("executeRun", () => {
 		);
 		expect(code).toBe(0);
 		expect(out).toHaveLength(1); // exactly one JSON line on stdout, no prose
+		// A weak green: auto-detected gate, no oracle, no scope -> a caller should flag
+		// this for review rather than integrate blind.
 		expect(JSON.parse(out[0])).toEqual({
 			id: "feat",
 			passed: true,
 			attempts: 1,
 			finalModel: "sonnet",
 			branch: "anvil/feat/abc",
+			gate: { commands: [], source: "autodetect" },
+			oracle: false,
+			scope: false,
+		});
+	});
+
+	it("--json carries gate provenance so a caller can tell a strong green from a weak one", async () => {
+		const out: string[] = [];
+		const io: Io = { out: (l) => out.push(l), err: () => {} };
+		const provenanceGate: Gate = {
+			async verify(): Promise<GateResult> {
+				return {
+					passed: true,
+					errors: "",
+					commands: [{ cmd: "tsc --noEmit", passed: true, output: "", durationMs: 1 }],
+				};
+			},
+		};
+		const code = await executeRun(
+			{ id: "feat", prompt: "p", base: { model: "sonnet" } },
+			opts({ json: true, verify: ["tsc --noEmit"], oracle: ["oracle.test.ts"], scope: ["src/**"] }),
+			{ agent: fakeAgent(), workspace: fakeWorkspace(), gate: provenanceGate, persist: new MemoryStatePersister() },
+			io,
+		);
+		expect(code).toBe(0);
+		// A strong green: explicit verify, a held oracle, a held scope -> safe to integrate blind.
+		expect(JSON.parse(out[0])).toMatchObject({
+			passed: true,
+			gate: { commands: ["tsc --noEmit"], source: "explicit" },
+			oracle: true,
+			scope: true,
 		});
 	});
 

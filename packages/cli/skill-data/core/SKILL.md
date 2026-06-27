@@ -146,9 +146,13 @@ test:unit"`) or pass an explicit `--verify`.
   Run records and transcripts live in a user-level dir (`$XDG_STATE_HOME/anvil`,
   else `~/.anvil`), not in the repo -- so they never dirty its `git status`.
 - For programmatic callers: `anvil run --json` emits
-  `{ id, passed, attempts, finalModel, finalEffort, branch, errors? }` and
+  `{ id, passed, attempts, finalModel, finalEffort, branch,
+     gate: { commands, source }, oracle, scope, errors? }` and
   `anvil status --json` emits the record ledger as a JSON array. Exit codes are
-  unchanged (`0` passed, non-zero failed/inconclusive).
+  unchanged (`0` passed, non-zero failed/inconclusive). The `gate`/`oracle`/`scope`
+  fields are *provenance*: they tell you how strong a green is (a strong green --
+  explicit `--verify` with a held oracle and scope -- is safe to integrate blind;
+  a weak auto-detected one warrants review). See the reference for the policy.
 
 ## When NOT to use anvil
 

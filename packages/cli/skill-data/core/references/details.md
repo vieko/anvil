@@ -133,8 +133,28 @@ For script/agent callers, both commands take `--json` (human chrome and the
 `-v` stream move to stderr; the JSON goes to stdout, exit codes unchanged):
 
 - `anvil run --json` -> one object:
-  `{ id, passed, attempts, finalModel, finalEffort, branch, errors? }`.
+  `{ id, passed, attempts, finalModel, finalEffort, branch,
+     gate: { commands, source }, oracle, scope, errors? }`.
 - `anvil status --json` -> the record ledger as a JSON array.
 
+### Routing trust from a green (gate provenance)
+
+`passed: true` says the gate held; the provenance fields say *how strong* that
+gate was, so a caller can decide integrate-blind vs. flag-for-review as a rule
+instead of re-reading the diff:
+
+- `gate.commands` -- the command strings the gate actually ran (e.g.
+  `["tsc --noEmit", "pnpm test:unit"]`); `[]` when the run was voided before any
+  verify (a frozen-oracle or out-of-scope edit).
+- `gate.source` -- `"explicit"` (you passed `--verify`) vs `"autodetect"` (anvil
+  read `package.json`).
+- `oracle` / `scope` -- true when that guard was enforced. Since any violation
+  voids the run, on a pass they also mean the guard *held*.
+
+A practical policy: **strong green** (`source: "explicit"` and `oracle` and
+`scope`) -> integrate blind; **weak green** (autodetect, no oracle, no scope)
+-> flag for human review. Counting the weak greens that re-verify wrong is also
+the evidence that would reopen a richer selection layer.
+
 Cumulative USD cost and per-attempt history are not in the payload yet (tracked
-separately); `branch` + the fields above are the stable Tier-1 contract.
+separately); the fields above are the stable contract.
