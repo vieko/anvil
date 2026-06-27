@@ -2,14 +2,16 @@
 
 **The agent works until a command says done. Not until a model says so.**
 
-Hand an agent an outcome and let it loop until something says it's done. The loop
-is the easy half; the half worth choosing is what ends it. Anvil ends it on a
-command's exit code, run in an isolated git worktree the run can't escape: not
-the model that did the work, not a second model reading the transcript. The agent
-can't talk its way to green, and a run can never touch your working tree.
+Anvil delegates a coding task to an autonomous agent. The agent works in an
+isolated git worktree, and the run succeeds only when a deterministic gate
+passes: a command you supply with `--verify`, or an auto-detected build,
+typecheck, and test. Describe what must be true and how to check it, and Anvil
+loops the agent, feeding back every failure, until the gate is green or it hits
+the attempt cap.
 
-Anvil only takes outcomes you can check, which is a real constraint. The
-reasoning is in [Say No](https://vieko.dev/say-no).
+A command, not a model, has the only vote on "done", so a run can't talk its way
+to green, and it never touches your working tree. The catch is that Anvil only
+takes outcomes you can check; the reasoning is in [Say No](https://vieko.dev/say-no).
 
 ```
 define outcome  →  agent works  →  deterministic gate  →  loop on failure
