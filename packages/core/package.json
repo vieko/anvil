@@ -4,6 +4,17 @@
   "private": true,
   "type": "module",
   "description": "The anvil engine: define outcome -> agent works -> deterministic gate -> loop.",
+  "license": "MIT",
+  "author": "vieko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vieko/anvil.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/vieko/anvil#readme",
+  "bugs": {
+    "url": "https://github.com/vieko/anvil/issues"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

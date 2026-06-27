@@ -4,6 +4,16 @@
   "type": "module",
   "version": "0.0.0",
   "description": "Anvil — the most reliable implementation of: define outcome -> agent works -> deterministic gate -> loop.",
+  "license": "MIT",
+  "author": "vieko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vieko/anvil.git"
+  },
+  "homepage": "https://github.com/vieko/anvil#readme",
+  "bugs": {
+    "url": "https://github.com/vieko/anvil/issues"
+  },
   "workspaces": [
     "packages/*"
   ],

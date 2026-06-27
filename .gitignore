@@ -1,5 +1,23 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
-coverage/
 *.tsbuildinfo
+
+# Testing
+coverage/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Editor / OS
 .DS_Store
+.vscode/
+.idea/
+*.swp
