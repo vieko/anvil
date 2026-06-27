@@ -56,6 +56,7 @@ Key options (`anvil --help` for the rest):
 | Option | Purpose |
 | ------ | ------- |
 | `-C, --dir <repo>` | Target repository (default: cwd). |
+| `--from <ref>` | Fork the worktree from this ref (default: `HEAD`); e.g. `main` while on a feature branch. |
 | `--verify "<cmd>"` | Gate command, repeatable. Omit it and Anvil auto-detects typecheck/build/test from `package.json`. |
 | `--contract <file>` | Seed a check (typically a failing test) into the worktree and **freeze** it: the agent must satisfy it, never edit it. The strongest gate. |
 | `--scope <glob>` | Fence the agent into these paths; a change outside **voids the run**. |
@@ -75,7 +76,7 @@ Key options (`anvil --help` for the rest):
    the only vote on "done":
    - **pass** → Anvil commits the work and stops.
    - **fail** → the errors feed the next attempt, and the model escalates
-     (Sonnet by default, stronger only when the gate keeps failing).
+     (`sonnet` by default, stronger only when the gate keeps failing).
    - **inconclusive** (a flake, a timeout, or no gate) → Anvil re-verifies rather
      than call it a pass.
 4. The loop ends at the attempt cap. State persists outside your repo, so
