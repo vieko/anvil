@@ -2,12 +2,10 @@
 
 **The agent works until a command says done. Not until a model says so.**
 
-Anvil delegates a coding task to an autonomous agent. The agent works in an
-isolated git worktree, and the run succeeds only when a deterministic gate
-passes: a command you supply with `--verify`, or an auto-detected build,
-typecheck, and test. Describe what must be true and how to check it, and Anvil
-loops the agent, feeding back every failure, until the gate is green or it hits
-the attempt cap.
+Anvil hands a coding task to an agent in an isolated git worktree and loops it,
+feeding back each failure, until a gate passes or it hits the attempt cap. The
+gate is what counts as done: a command you supply with `--verify`, or an
+auto-detected build, typecheck, and test.
 
 Anvil is the reliability-first spine of [forge](https://github.com/vieko/forge),
 extracted clean: the gate and the loop are the most-tested, most paranoid code in
