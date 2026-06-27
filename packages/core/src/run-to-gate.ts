@@ -181,7 +181,7 @@ export async function runToGate(
 		// inside the scope globs. A change outside is void -- terminal, never a pass
 		// (same shape as the frozen guard). This bounds the damage when the oracle
 		// under-specifies the contract: the agent can't quietly "fix" unrelated files
-		// (the gong-ingest overreach in the GTMENG-969 dogfood is the motivating case).
+		// (the motivating case: an agent asked to change one route reaching into another).
 		const scope = await workspace.assertScope?.();
 		if (scope) {
 			const paths = scope.outside.map((p) => `  ${p}`).join("\n");
