@@ -1,6 +1,6 @@
 # Anvil
 
-**Outcome-driven, command-verified agent execution. Confirm the outcome, don't assume it.**
+**Outcome-driven, command-verified agent execution. Check what you can't trust.**
 
 Anvil hands a coding task to an agent in an isolated git worktree and loops it,
 feeding back each failure, until a gate passes or it hits the attempt cap. The
