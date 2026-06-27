@@ -2,16 +2,14 @@
 
 **The agent works until a command says done. Not until a model says so.**
 
-The loop is everywhere now: hand an agent an outcome, let it work turn after
-turn until something decides it's met. Codex ships it. Claude Code ships it. A
-shell script can do it. The loop is the easy half. The half worth choosing is
-what you trust to end it.
-
-Anvil ends it on a command's exit code, run in an isolated git worktree the run
-can't escape. Not the model that did the work, grading its own evidence. Not a
-second model reading the transcript. A command. `npm test` does not care how
-persuasive the agent was; it runs the tests and returns a number. The agent
+Hand an agent an outcome and let it loop until something says it's done. The loop
+is the easy half; the half worth choosing is what ends it. Anvil ends it on a
+command's exit code, run in an isolated git worktree the run can't escape: not
+the model that did the work, not a second model reading the transcript. The agent
 can't talk its way to green, and a run can never touch your working tree.
+
+Anvil only takes outcomes you can check, which is a real constraint. The
+reasoning is in [Say No](https://vieko.dev/say-no).
 
 ```
 define outcome  →  agent works  →  deterministic gate  →  loop on failure
@@ -24,33 +22,9 @@ anvil run "make the failing parser tests pass"
 ```
 
 Anvil is the reliability-first spine of [forge](https://github.com/vieko/forge),
-extracted clean. Forge proved the bet (verification, not a smarter model, is
-what makes the output trustworthy), then grew a scheduler, a second workspace
-backend, and a daemon around it. Anvil keeps the part that earns the trust: the
-gate and the loop are the largest, most-tested, most paranoid code in the repo,
-and orchestration is thin glue on top. See **[`docs/design.md`](docs/design.md)**
-for the contract and the scope lock.
-
-## What decides done
-
-You can lock down a command. You can't lock down an opinion.
-
-A model grading its own work, or a second model reading the transcript, is still
-an opinion. It can be talked around, and "all tests pass" with no run behind it
-reads the same as the truth. A command can't be talked around. That is the whole
-point, and it is the only thing Anvil accepts as "done".
-
-The honest cost: a command is narrow. It decides "done" only when "done" reduces
-to something that exits zero, like a build, a type check, a test, a script you
-write. "Tell me where this is most likely to break in production" has no exit
-code, so Anvil can't express it. A model judge takes any goal you can phrase;
-Anvil takes the ones you can check. No gate, no guarantee.
-
-And the gate doesn't make judgment disappear. It moves it up front, into the
-check you write, instead of a verdict at the end. Writing a check that actually
-captures what "done" means is the real work, and it is exactly the work a model
-judge lets you skip. What Anvil won't hand the agent is the authority to call its
-own work done. That stays with a command, or with you.
+extracted clean: the gate and the loop are the most-tested, most paranoid code in
+the repo, and orchestration is thin glue on top. See
+**[`docs/design.md`](docs/design.md)** for the contract and scope lock.
 
 ## Requirements
 
@@ -109,49 +83,41 @@ Key options (`anvil --help` for the rest):
 ## How it works
 
 1. Anvil cuts an isolated **linked worktree** on a fresh branch
-   `anvil/<id>/<ts>`. Your working tree is never touched; that's an invariant,
-   not a feature, so a run can't stomp uncommitted work.
+   `anvil/<id>/<ts>`. Your working tree is never touched, so a run can't stomp
+   uncommitted work.
 2. The agent (Pi-backed, with `read` / `edit` / `write` / `bash` tools) works
    the outcome inside that worktree.
 3. The **gate** runs your verification commands in a clean environment and has
    the only vote on "done":
    - **pass** → Anvil commits the work on the branch and stops.
-   - **fail** → the errors go back into the next attempt, and the model climbs
-     an **escalation ladder**. Anvil runs the cheapest model that clears the
-     gate (Sonnet by default) and reaches for a stronger one only when the gate
-     keeps saying no. A model that can't pass wasn't the right model, and the
-     gate finds that out by watching it fail, not by guessing up front.
-   - **inconclusive** (a flake, a timeout, or no gate at all) → Anvil
-     re-verifies instead of feeding garbage back, and never calls it a pass.
+   - **fail** → the errors go back into the next attempt, and the model climbs an
+     **escalation ladder** (cheapest model that clears the gate, Sonnet by
+     default, stronger only when the gate keeps failing).
+   - **inconclusive** (a flake, a timeout, or no gate at all) → Anvil re-verifies
+     instead of feeding garbage back, and never calls it a pass.
 4. The loop always ends at the attempt cap. State is persisted at every step (in
    a user-level dir, never in your repo), so `status` is exact and a passed
    outcome is never redone.
 
-Nothing comes back to you until a command says it passed, so by the time you
-look, it already builds and the tests are green. You still review: a gate that
-can't be talked around can still pass a wrong change, because it only checks what
-you wrote. The work lives on its branch; merge it when you're satisfied:
+Nothing comes back until a command says it passed, so the work already builds and
+the tests are green by the time you look. You still review, then merge:
 
 ```bash
 git -C <repo> merge anvil/<id>/<ts>   # or cherry-pick the commit
 ```
 
-## Keeping a green honest
+## Guards
 
 A command is only as honest as what it checks, and an agent that can edit the
-test can make anything pass: weaken the assertion, skip the case, hardcode the
-answer. So Anvil doesn't let it.
+test can make anything pass. So Anvil doesn't let it:
 
-- **A frozen oracle** (`--oracle <file>`): seed the check the agent has to clear,
-  out of its reach. Edit it, and the run is void.
-- **Scope** (`--scope <glob>`): the agent gets a fence, and a change outside it
-  voids the run. This one came from a real bug. I asked for one cron route
-  migrated and the agent reached into another, like hiring a painter for one room
-  and coming home to find they redid the plumbing in another.
-- **A false-pass guard**: an empty or provider-errored turn never reaches the
-  gate, so a repo that was already green can't be mistaken for work done.
+- `--oracle <file>`: seed the check the agent must clear, out of its reach. Edit
+  it, and the run is void.
+- `--scope <glob>`: fence the agent into a set of paths. A change outside voids
+  the run.
+- false-pass guard: an empty or provider-errored turn never reaches the gate.
 
-All three can only force a *no*. The gate stays the only path to "done".
+All three can only force a no. The gate stays the only path to "done".
 
 ## Machine-readable output
 
@@ -186,8 +152,7 @@ agents, or a plain CI script. `anvil skills get core` prints a harness-agnostic
 guide an agent can read to learn how to phrase outcomes and interpret the result.
 
 Under the hood Anvil is built on [Pi](https://pi.dev): its `read` / `edit` /
-`write` / `bash` tools and the `PiAgent` driver run on Pi's agent runtime. What
-makes it Anvil isn't the model underneath. It's the gate.
+`write` / `bash` tools and the `PiAgent` driver run on Pi's agent runtime.
 
 ## Develop
 
