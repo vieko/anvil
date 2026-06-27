@@ -44,7 +44,7 @@ anvil run "<outcome>"                          # outcome to its gate, in an isol
 anvil run specs/feature.md                     # an outcome from a spec file
 anvil run "..." -C /path/to/repo               # target another repo (like git -C)
 anvil run "..." --verify "npm test"            # explicit gate (repeatable; all must pass)
-anvil run "..." --oracle test/contract.test.ts # seed a frozen test the agent must satisfy
+anvil run "..." --contract test/parser.test.ts # seed a frozen test the agent must satisfy
 anvil run "..." --scope "src/**"               # fence the agent into these paths
 anvil run "..." --json                         # machine-readable result on stdout
 anvil status                                   # list recorded runs and their state
@@ -57,7 +57,7 @@ Key options (`anvil --help` for the rest):
 | ------ | ------- |
 | `-C, --dir <repo>` | Target repository (default: cwd). |
 | `--verify "<cmd>"` | Gate command, repeatable. Omit it and Anvil auto-detects typecheck/build/test from `package.json`. |
-| `--oracle <file>` | Seed a check (typically a failing test) into the worktree and **freeze** it: the agent must satisfy it, never edit it. The strongest gate. |
+| `--contract <file>` | Seed a check (typically a failing test) into the worktree and **freeze** it: the agent must satisfy it, never edit it. The strongest gate. |
 | `--scope <glob>` | Fence the agent into these paths; a change outside **voids the run**. |
 | `--model <alias\|provider:id>` | Base model: `haiku` / `sonnet` / `opus`, or a concrete `provider:model-id`. Default `sonnet`. |
 | `-n, --max-attempts <n>` | Attempt cap before giving up (default `3`). |
@@ -91,7 +91,7 @@ git -C <repo> merge anvil/<id>/<ts>   # or cherry-pick the commit
 
 An agent that can edit the check can pass anything. The guards stop that:
 
-- `--oracle <file>`: seed the check the agent must clear, out of its reach. Edit
+- `--contract <file>`: seed the check the agent must clear, out of its reach. Edit
   it, and the run is void.
 - `--scope <glob>`: fence the agent into a set of paths. A change outside voids
   the run.
@@ -114,7 +114,7 @@ instead of re-reading the diff:
   "finalModel": "sonnet",
   "branch": "anvil/parser-tests/lz4k9",
   "gate": { "commands": ["tsc --noEmit", "npm test"], "source": "explicit" },
-  "oracle": true,    // a frozen oracle was enforced (and, since a violation voids the run, held)
+  "contract": true,  // a contract was enforced (and, since a violation voids the run, held)
   "scope": true      // a scope was enforced (and held)
 }
 ```

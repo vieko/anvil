@@ -105,8 +105,8 @@ describe("runToGate", () => {
 		};
 		const frozenWs: Workspace = {
 			...fakeWorkspace(),
-			async assertFrozen() {
-				return { path: "oracle.test.ts", diff: "-x\n+y" };
+			async assertContract() {
+				return { path: "contract.test.ts", diff: "-x\n+y" };
 			},
 		};
 		const res = await runToGate(
@@ -312,7 +312,7 @@ describe("runToGate", () => {
 		expect(verifyCalls).toBe(1); // the gate ran only for the real turn, not the API-error turn
 	});
 
-	it("voids the run terminally when the agent modifies a frozen oracle (hard freeze)", async () => {
+	it("voids the run terminally when the agent modifies the contract (hard freeze)", async () => {
 		const agent: Agent = {
 			async dispatch() {
 				return { text: "done", usage: { input: 1, output: 1, cacheRead: 0 } };
@@ -328,8 +328,8 @@ describe("runToGate", () => {
 		const ws = fakeWorkspace();
 		const frozenWs: Workspace = {
 			...ws,
-			async assertFrozen() {
-				return { path: "oracle.test.ts", diff: "-  expect(true).toBe(true)\n+  expect(true).toBe(false)" };
+			async assertContract() {
+				return { path: "contract.test.ts", diff: "-  expect(true).toBe(true)\n+  expect(true).toBe(false)" };
 			},
 		};
 		const persist = recordingPersister();
@@ -338,7 +338,7 @@ describe("runToGate", () => {
 
 		expect(res.passed).toBe(false);
 		expect(res.attempts).toBe(1); // terminal on the first attempt -- never retried
-		expect(res.errors).toContain("frozen oracle");
+		expect(res.errors).toContain("modified the contract");
 		expect(verified).toBe(false); // the gate never ran
 		expect(ws.committed).toEqual([]); // nothing committed
 		expect(persist.states).toContain("failed");

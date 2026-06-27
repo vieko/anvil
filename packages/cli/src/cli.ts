@@ -4,17 +4,17 @@ import { parseArgs } from "node:util";
 export interface RunOptions {
 	dir?: string;
 	/** Ref to fork the worktree from (default HEAD). Use "main" to fork from main regardless of the checked-out branch. */
-	base?: string;
+	from?: string;
 	model?: string;
 	maxAttempts?: number;
 	/** Explicit gate commands; when empty the gate auto-detects. */
 	verify: string[];
-	/** Glob patterns copied into the worktree before the agent runs (e.g. "**\/.env.local"). */
-	share: string[];
+	/** Glob patterns linked into the worktree before the agent runs (symlink, copy fallback; e.g. "**\/.env.local"). */
+	link: string[];
 	/** Install dependencies in the worktree when a lockfile is present (default true). */
 	install: boolean;
-	/** Verification oracle file(s) seeded into the worktree and frozen (agent must satisfy, not edit). */
-	oracle: string[];
+	/** Contract file(s) seeded into the worktree and frozen (agent must satisfy, not edit). */
+	contract: string[];
 	/** Blast-radius globs: the only paths the agent may modify; a change outside voids the run. */
 	scope: string[];
 	quiet: boolean;
@@ -46,12 +46,12 @@ export function parse(argv: string[]): Command {
 			allowPositionals: true,
 			options: {
 				dir: { type: "string", short: "C" },
-				base: { type: "string" },
+				from: { type: "string" },
 				model: { type: "string" },
 				"max-attempts": { type: "string", short: "n" },
 				verify: { type: "string", multiple: true },
-				share: { type: "string", multiple: true },
-				oracle: { type: "string", multiple: true },
+				link: { type: "string", multiple: true },
+				contract: { type: "string", multiple: true },
 				scope: { type: "string", multiple: true },
 				"no-install": { type: "boolean" },
 				full: { type: "boolean" },
@@ -92,12 +92,12 @@ export function parse(argv: string[]): Command {
 				outcome,
 				options: {
 					dir,
-					base: values.base as string | undefined,
+					from: values.from as string | undefined,
 					model: values.model as string | undefined,
 					maxAttempts,
 					verify: (values.verify as string[] | undefined) ?? [],
-					share: (values.share as string[] | undefined) ?? [],
-					oracle: (values.oracle as string[] | undefined) ?? [],
+					link: (values.link as string[] | undefined) ?? [],
+					contract: (values.contract as string[] | undefined) ?? [],
 					scope: (values.scope as string[] | undefined) ?? [],
 					install: !((values["no-install"] as boolean | undefined) ?? false),
 					quiet: (values.quiet as boolean | undefined) ?? false,
@@ -139,16 +139,16 @@ Usage:
 
 run options:
   -C, --dir <path>        Target repository (default: current directory)
-      --base <ref>        Ref to fork the worktree from (default: HEAD; e.g.
+      --from <ref>        Ref to fork the worktree from (default: HEAD; e.g.
                           "main" to fork from main regardless of the checkout)
       --model <name>      Base model: alias (haiku/sonnet/opus) or provider:id
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
-      --share <glob>      Copy file(s) into the worktree before the run
-                          (repeatable; e.g. "**/.env.local"). Off by default.
+      --link <glob>       Link file(s) into the worktree before the run (symlink,
+                          copy fallback; repeatable; e.g. "**/.env.local"). Off by default.
       --no-install        Skip the pre-run dependency install (on by default
                           when a lockfile is present)
-      --oracle <path>     Seed a file into the worktree and freeze it: the agent
+      --contract <path>   Seed a file into the worktree and freeze it: the agent
                           must satisfy it, never edit it (repeatable)
       --scope <glob>      Restrict which paths the agent may modify (repeatable;
                           e.g. "src/**"). A change outside voids the run.

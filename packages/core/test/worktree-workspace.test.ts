@@ -93,10 +93,10 @@ describe("WorktreeWorkspace (real git)", () => {
 		}
 	});
 
-	it("copies opted-in shared files into the worktree (--share)", async () => {
+	it("links opted-in files into the worktree (--link)", async () => {
 		await mkdir(join(repoRoot, "apps", "web"), { recursive: true });
 		await writeFile(join(repoRoot, "apps", "web", ".env.local"), "SECRET=shh\n");
-		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b5", sharedFiles: ["**/.env.local"] });
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b5", linkedFiles: ["**/.env.local"] });
 		try {
 			expect(await ws.exists("apps/web/.env.local")).toBe(true);
 			expect(await ws.readText("apps/web/.env.local")).toBe("SECRET=shh\n");
@@ -114,20 +114,20 @@ describe("WorktreeWorkspace (real git)", () => {
 		}
 	});
 
-	it("seeds an oracle into the base and detects agent tampering (hard freeze)", async () => {
-		await writeFile(join(repoRoot, "oracle.test.ts"), "expect(true).toBe(true)\n");
-		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b7", oracleFiles: ["oracle.test.ts"] });
+	it("seeds a contract into the base and detects agent tampering (hard freeze)", async () => {
+		await writeFile(join(repoRoot, "contract.test.ts"), "expect(true).toBe(true)\n");
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b7", contractFiles: ["contract.test.ts"] });
 		try {
 			// committed into the base -> present and clean
-			expect(await ws.exists("oracle.test.ts")).toBe(true);
-			expect(await ws.assertFrozen()).toBeNull();
+			expect(await ws.exists("contract.test.ts")).toBe(true);
+			expect(await ws.assertContract()).toBeNull();
 			const log = await ws.exec("git log --oneline -1");
-			expect(log.stdout).toContain("seed verification oracle");
+			expect(log.stdout).toContain("seed contract");
 
 			// the agent tampers with it -> a violation naming the path
-			await writeFile(join(ws.cwd, "oracle.test.ts"), "expect(true).toBe(false)\n");
-			const violation = await ws.assertFrozen();
-			expect(violation?.path).toBe("oracle.test.ts");
+			await writeFile(join(ws.cwd, "contract.test.ts"), "expect(true).toBe(false)\n");
+			const violation = await ws.assertContract();
+			expect(violation?.path).toBe("contract.test.ts");
 			expect(violation?.diff).toContain("toBe(false)");
 		} finally {
 			await ws.cleanup();
@@ -159,11 +159,11 @@ describe("WorktreeWorkspace (real git)", () => {
 		const hooksDir = join(repoRoot, ".git", "hooks");
 		await mkdir(hooksDir, { recursive: true });
 		await writeFile(join(hooksDir, "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-		await writeFile(join(repoRoot, "oracle2.test.ts"), "ok\n");
-		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b10", oracleFiles: ["oracle2.test.ts"] });
+		await writeFile(join(repoRoot, "contract2.test.ts"), "ok\n");
+		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b10", contractFiles: ["contract2.test.ts"] });
 		try {
-			// the seed commit succeeded despite the failing hook (else assertFrozen throws/diffs)
-			expect(await ws.assertFrozen()).toBeNull();
+			// the seed commit succeeded despite the failing hook (else assertContract throws/diffs)
+			expect(await ws.assertContract()).toBeNull();
 			await writeFile(join(ws.cwd, "work.txt"), "agent work\n");
 			expect(await ws.commit("anvil: capture")).toBe(true);
 		} finally {
@@ -171,10 +171,10 @@ describe("WorktreeWorkspace (real git)", () => {
 		}
 	});
 
-	it("assertFrozen is a no-op when no oracle was seeded", async () => {
+	it("assertContract is a no-op when no contract was seeded", async () => {
 		const ws = await WorktreeWorkspace.create({ repoRoot, branch: "b8" });
 		try {
-			expect(await ws.assertFrozen()).toBeNull();
+			expect(await ws.assertContract()).toBeNull();
 		} finally {
 			await ws.cleanup();
 		}

@@ -76,7 +76,7 @@ Set the base with `--model`; the climb is automatic.
 Vercel AI Gateway (one key, `AI_GATEWAY_API_KEY`). Or pass a concrete
 `provider:model-id`. The default base is `sonnet`.
 
-## Worktree prep: deps, shared files, frozen oracles, scope
+## Worktree prep: deps, linked files, contracts, scope
 
 Before the agent's first turn, anvil prepares the fresh worktree:
 
@@ -86,11 +86,11 @@ Before the agent's first turn, anvil prepares the fresh worktree:
   install failure is fatal. In a large monorepo, a scoped install folded into
   `--verify` (e.g. `pnpm install --filter <pkg>... && pnpm --filter <pkg>
   test:unit`) plus `--no-install` can beat the whole-repo install.
-- **Shared files** (`--share <glob>`, repeatable) are copied in (symlink, copy
+- **Linked files** (`--link <glob>`, repeatable) are linked in (symlink, copy
   fallback) for a gate that needs a gitignored file like `**/.env.local`. Off by
   default: handing real secrets to a worked agent widens the blast radius, so
   opt in deliberately and prefer a deterministic gate that needs none.
-- **Frozen oracles** (`--oracle <file>`, repeatable) are copied in and committed
+- **Contracts** (`--contract <file>`, repeatable) are copied in and committed
   into the worktree base, then frozen: if the agent modifies or deletes one the
   run is voided terminally (never retried, never a pass). The immutable gate
   behind the red-green pattern -- a green run provably satisfied a test the
@@ -98,7 +98,7 @@ Before the agent's first turn, anvil prepares the fresh worktree:
 - **Scope** (`--scope <glob>`, repeatable) bounds which paths the agent may
   modify. After the agent's turn, anvil diffs the worktree against its base; a
   change to any path matching none of the scope globs voids the run terminally
-  (same shape as the frozen-oracle guard). The mirror of `--oracle`: freeze
+  (same shape as the contract guard). The mirror of `--contract`: the contract
   guards files the agent must *not* touch; scope bounds the set it *may* touch.
   Reach for it when the gate can't fully encode the contract -- it caps the
   blast radius so an agent can't quietly "fix" an unrelated, already-correct
@@ -134,7 +134,7 @@ For script/agent callers, both commands take `--json` (human chrome and the
 
 - `anvil run --json` -> one object:
   `{ id, passed, attempts, finalModel, finalEffort, branch,
-     gate: { commands, source }, oracle, scope, errors? }`.
+     gate: { commands, source }, contract, scope, errors? }`.
 - `anvil status --json` -> the record ledger as a JSON array.
 
 ### Routing trust from a green (gate provenance)
@@ -145,14 +145,14 @@ instead of re-reading the diff:
 
 - `gate.commands` -- the command strings the gate actually ran (e.g.
   `["tsc --noEmit", "pnpm test:unit"]`); `[]` when the run was voided before any
-  verify (a frozen-oracle or out-of-scope edit).
+  verify (a contract violation or out-of-scope edit).
 - `gate.source` -- `"explicit"` (you passed `--verify`) vs `"autodetect"` (anvil
   read `package.json`).
-- `oracle` / `scope` -- true when that guard was enforced. Since any violation
+- `contract` / `scope` -- true when that guard was enforced. Since any violation
   voids the run, on a pass they also mean the guard *held*.
 
-A practical policy: **strong green** (`source: "explicit"` and `oracle` and
-`scope`) -> integrate blind; **weak green** (autodetect, no oracle, no scope)
+A practical policy: **strong green** (`source: "explicit"` and `contract` and
+`scope`) -> integrate blind; **weak green** (autodetect, no contract, no scope)
 -> flag for human review. Counting the weak greens that re-verify wrong is also
 the evidence that would reopen a richer selection layer.
 

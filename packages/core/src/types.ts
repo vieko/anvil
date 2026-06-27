@@ -117,17 +117,17 @@ export interface Workspace {
 	/** Commit current changes. Returns false when there was nothing to commit. */
 	commit(message: string): Promise<boolean>;
 	/**
-	 * Optional integrity check for agent-immutable oracle files seeded into the
-	 * workspace (see `--oracle`). Returns the first path that differs from its
-	 * seeded base, or null when all are intact (or none were seeded). The engine
-	 * treats a violation as a terminal, non-pass failure.
+	 * Optional integrity check for the agent-immutable contract files seeded into
+	 * the workspace (see `--contract`). Returns the first path that differs from
+	 * its seeded base, or null when all are intact (or none were seeded). The
+	 * engine treats a violation as a terminal, non-pass failure.
 	 */
-	assertFrozen?(): Promise<{ path: string; diff: string } | null>;
+	assertContract?(): Promise<{ path: string; diff: string } | null>;
 	/**
 	 * Optional blast-radius guard for `--scope`: returns the agent-modified paths
 	 * that fall OUTSIDE the configured scope globs, or null when every change is in
-	 * scope (or no scope was set). The mirror of {@link assertFrozen} -- freeze =
-	 * files the agent must NOT touch; scope = the only files it MAY touch. The
+	 * scope (or no scope was set). The mirror of {@link assertContract} -- the
+	 * contract = files the agent must NOT touch; scope = the only files it MAY touch. The
 	 * engine treats a non-empty result as a terminal, non-pass failure.
 	 */
 	assertScope?(): Promise<{ outside: string[] } | null>;

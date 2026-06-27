@@ -26,19 +26,20 @@ anvil run "<outcome>" -C <repo> [--verify "<cmd>"]...
   Mirrors `git -C`.
 - `--verify "<cmd>"` — the gate command. Repeatable (all must pass). When
   omitted, anvil auto-detects test/typecheck/build from `package.json`.
-- `--oracle <file>` — seed a file you wrote (typically a failing test) into the
+- `--contract <file>` — seed a file you wrote (typically a failing test) into the
   worktree and **freeze** it: the agent must satisfy it and cannot edit it.
   Repeatable. The strongest gate (see below).
 - `--scope <glob>` — restrict which paths the agent may modify (repeatable;
   e.g. `"apps/api/**"`). A change outside the scope **voids the run**. The
-  mirror of `--oracle`: freeze guards files the agent must *not* touch; scope
+  mirror of `--contract`: the contract is a file the agent must *not* touch; scope
   bounds the set it *may* touch. Use it to cap blast radius when the gate
-  can't fully specify the contract.
+  can't fully pin down what done means.
 - `--model <alias|provider:id>` — base model: `haiku` / `sonnet` / `opus`, or a
   concrete `provider:model-id`. Default `sonnet`.
 - `-n, --max-attempts <n>` — attempt cap before giving up (default `3`).
-- `--share <glob>` — copy file(s) into the worktree before the run (e.g.
-  `"**/.env.local"`); off by default. Use it when a gate needs files git ignores.
+- `--link <glob>` — link file(s) into the worktree before the run (symlink, copy
+  fallback; e.g. `"**/.env.local"`); off by default. Use it when a gate needs
+  files git ignores.
 - `--no-install` — skip the automatic pre-run dependency install (on by default
   when a lockfile is present; deps are installed once so the agent need not).
 - `-q, --quiet` — print only the final verdict.
@@ -65,12 +66,12 @@ a command, not a sentence:
 
 - **Result** — what must be true when done. The prompt (`"<outcome>"`).
 - **Verification surface** — the command that proves it. The gate (`--verify`,
-  or auto-detection; `--oracle` for a frozen check).
+  or auto-detection; `--contract` for a frozen check).
 - **Constraints** — what must not regress on the way there. Add them as extra
   gate checks: a refactor pairs its test with `--verify "tsc --noEmit"`, so
   "done" also means "still typechecks".
 - **Boundaries** — which paths the agent may touch. `--scope <glob>` voids the
-  run on any edit outside them; `--oracle` freezes files it must not edit.
+  run on any edit outside them; `--contract` freezes files it must not edit.
 
 anvil owns the rest of the contract for you: the **iteration policy** (escalate
 the model/effort each retry, feeding the gate's errors back) and the **stop
@@ -87,13 +88,13 @@ ways:
    normal Node/TS repo.
 2. **Explicit `--verify`** (recommended when you know the check): pass the exact
    command(s) — a precise signal of what "done" means.
-3. **Frozen oracle `--oracle <file>`** (the strongest gate): seed a failing test
+3. **Frozen contract `--contract <file>`** (the strongest gate): seed a failing test
    you wrote into the worktree; the agent must make it pass and **cannot edit
-   it** — any change to a frozen oracle voids the run. Green then means the agent
+   it** — any change to the contract voids the run. Green then means the agent
    satisfied a check it did not author (the red-green / test-first pattern, made
    native). Pair it with `--verify` to run that test.
 
-A frozen oracle is only as good as the contract it encodes; if it under-specifies,
+A contract is only as good as what it encodes; if it under-specifies,
 a green run can still be wrong (an agent can "fix" an unrelated file in a way the
 gate doesn't see). Add `--scope <glob>` to bound the blast radius — the run voids
 if the agent edits anything outside the paths you name.
@@ -147,11 +148,11 @@ test:unit"`) or pass an explicit `--verify`.
   else `~/.anvil`), not in the repo -- so they never dirty its `git status`.
 - For programmatic callers: `anvil run --json` emits
   `{ id, passed, attempts, finalModel, finalEffort, branch,
-     gate: { commands, source }, oracle, scope, errors? }` and
+     gate: { commands, source }, contract, scope, errors? }` and
   `anvil status --json` emits the record ledger as a JSON array. Exit codes are
-  unchanged (`0` passed, non-zero failed/inconclusive). The `gate`/`oracle`/`scope`
+  unchanged (`0` passed, non-zero failed/inconclusive). The `gate`/`contract`/`scope`
   fields are *provenance*: they tell you how strong a green is (a strong green --
-  explicit `--verify` with a held oracle and scope -- is safe to integrate blind;
+  explicit `--verify` with a held contract and scope -- is safe to integrate blind;
   a weak auto-detected one warrants review). See the reference for the policy.
 
 ## When NOT to use anvil

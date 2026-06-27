@@ -50,8 +50,8 @@ export interface RunToGateResult {
 	/**
 	 * The command strings the gate ran on its final verify -- the *provenance* of
 	 * the verdict, so a caller can tell what actually proved (or failed to prove)
-	 * the outcome. Absent when the gate never ran: a guard-voided run (frozen
-	 * oracle / out-of-scope edit) or a dispatch that never reached verification.
+	 * the outcome. Absent when the gate never ran: a guard-voided run (contract
+	 * violation / out-of-scope edit) or a dispatch that never reached verification.
 	 */
 	gateCommands?: string[];
 }
@@ -166,21 +166,21 @@ export async function runToGate(
 			continue;
 		}
 
-		// Hard-freeze guard: if the agent modified a frozen oracle (a user-supplied
+		// Contract guard: if the agent modified a frozen contract (a user-supplied
 		// test it must SATISFY, not edit), the run is void. Terminal — never retried,
 		// never a pass (same shape as the false-pass guard: a guard may only force a
 		// non-pass, never a pass; the gate stays the sole authority on "done").
-		const frozen = await workspace.assertFrozen?.();
-		if (frozen) {
-			lastErrors = `anvil: the agent modified a frozen oracle (${frozen.path}); the run is void.\n\n${frozen.diff}`;
+		const contract = await workspace.assertContract?.();
+		if (contract) {
+			lastErrors = `anvil: the agent modified the contract (${contract.path}); the run is void.\n\n${contract.diff}`;
 			await record("failed", attempt, config, { usage: dispatch.usage, errors: lastErrors });
 			return { outcomeId: outcome.id, passed: false, attempts: attempt + 1, finalConfig: config, errors: lastErrors };
 		}
 
 		// Blast-radius guard (#8): with --scope set, the agent may only modify files
 		// inside the scope globs. A change outside is void -- terminal, never a pass
-		// (same shape as the frozen guard). This bounds the damage when the oracle
-		// under-specifies the contract: the agent can't quietly "fix" unrelated files
+		// (same shape as the contract guard). This bounds the damage when the contract
+		// under-specifies what "done" means: the agent can't quietly "fix" unrelated files
 		// (the motivating case: an agent asked to change one route reaching into another).
 		const scope = await workspace.assertScope?.();
 		if (scope) {

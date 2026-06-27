@@ -20,11 +20,11 @@ export interface WorktreeWorkspaceOptions {
 	/** Custom shell path for the underlying pi ExecutionEnv. */
 	shellPath?: string;
 	/**
-	 * Glob patterns (relative to the repo root) to copy into the worktree before
+	 * Glob patterns (relative to the repo root) to link into the worktree before
 	 * the agent runs -- e.g. ["**\/.env.local"]. Symlink, with copy fallback.
-	 * Brought in but never committed (a fresh worktree lacks gitignored files).
+	 * Linked in but never committed (a fresh worktree lacks gitignored files).
 	 */
-	sharedFiles?: string[];
+	linkedFiles?: string[];
 	/**
 	 * Install dependencies in the worktree before the agent runs, when a lockfile
 	 * is present (detected package manager). Failure is fatal -- a broken install
@@ -32,17 +32,17 @@ export interface WorktreeWorkspaceOptions {
 	 */
 	install?: boolean;
 	/**
-	 * Verification oracle file(s) (paths relative to the repo root) copied from
-	 * the source tree into the worktree and committed into the base, then frozen:
-	 * the agent must SATISFY them, not edit them. {@link WorktreeWorkspace.assertFrozen}
+	 * Contract file(s) (paths relative to the repo root) copied from the source
+	 * tree into the worktree and committed into the base, then frozen: the agent
+	 * must SATISFY them, not edit them. {@link WorktreeWorkspace.assertContract}
 	 * reports any modification; the engine treats it as a terminal, non-pass failure.
 	 */
-	oracleFiles?: string[];
+	contractFiles?: string[];
 	/**
 	 * Blast-radius globs (relative to the repo root) for `--scope`. When set, the
 	 * agent may only modify files matching one of these; {@link WorktreeWorkspace.assertScope}
 	 * reports any change outside them and the engine treats it as a terminal,
-	 * non-pass failure. The mirror of {@link oracleFiles}'s freeze.
+	 * non-pass failure. The mirror of {@link contractFiles}'s freeze.
 	 */
 	scopeGlobs?: string[];
 }
@@ -77,7 +77,7 @@ export class WorktreeWorkspace implements Workspace {
 	private readonly defaultTimeoutMs?: number;
 	private readonly shellPath?: string;
 	private removed = false;
-	private oraclePaths: string[] = [];
+	private contractPaths: string[] = [];
 	private scopeGlobs: string[] = [];
 
 	private constructor(args: {
@@ -130,22 +130,23 @@ export class WorktreeWorkspace implements Workspace {
 			shellPath: opts.shellPath,
 		});
 		ws.scopeGlobs = opts.scopeGlobs ?? [];
-		await ws.prepare({ oracleFiles: opts.oracleFiles, sharedFiles: opts.sharedFiles, install: opts.install });
+		await ws.prepare({ contractFiles: opts.contractFiles, linkedFiles: opts.linkedFiles, install: opts.install });
 		return ws;
 	}
 
 	/**
-	 * Pre-agent worktree setup: bring in shared files (e.g. .env.local) and
-	 * install dependencies. Runs once, after provisioning, before the agent's
-	 * first turn. Install failure is fatal -- a broken install is never handed to
-	 * the agent.
+	 * Pre-agent worktree setup: link in host files (e.g. .env.local) and install
+	 * dependencies. Runs once, after provisioning, before the agent's first turn.
+	 * Install failure is fatal -- a broken install is never handed to the agent.
 	 */
-	private async prepare(opts: { oracleFiles?: string[]; sharedFiles?: string[]; install?: boolean }): Promise<void> {
-		if (opts.oracleFiles?.length) {
-			this.oraclePaths = await seedOracle(this.repoRoot, this.cwd, opts.oracleFiles, (cmd, o) => this.exec(cmd, o));
+	private async prepare(opts: { contractFiles?: string[]; linkedFiles?: string[]; install?: boolean }): Promise<void> {
+		if (opts.contractFiles?.length) {
+			this.contractPaths = await seedContract(this.repoRoot, this.cwd, opts.contractFiles, (cmd, o) =>
+				this.exec(cmd, o),
+			);
 		}
-		if (opts.sharedFiles?.length) {
-			await copyShared(this.repoRoot, this.cwd, opts.sharedFiles);
+		if (opts.linkedFiles?.length) {
+			await linkFiles(this.repoRoot, this.cwd, opts.linkedFiles);
 		}
 		if (opts.install && (await hasLockfile(this))) {
 			const cmd = installCommand(await detectPackageManager(this));
@@ -199,12 +200,12 @@ export class WorktreeWorkspace implements Workspace {
 	}
 
 	/**
-	 * Oracle integrity: the first seeded oracle path whose working-tree content
-	 * differs from the seeded base commit (modified or deleted), or null when all
-	 * are intact. No-op when no oracle was seeded.
+	 * Contract integrity: the first seeded contract path whose working-tree
+	 * content differs from the seeded base commit (modified or deleted), or null
+	 * when all are intact. No-op when no contract was seeded.
 	 */
-	async assertFrozen(): Promise<{ path: string; diff: string } | null> {
-		for (const path of this.oraclePaths) {
+	async assertContract(): Promise<{ path: string; diff: string } | null> {
+		for (const path of this.contractPaths) {
 			const diff = await this.exec(`git diff HEAD -- ${shellQuote(path)}`);
 			if (diff.exitCode === 0 && diff.stdout.trim() !== "") {
 				return { path, diff: diff.stdout };
@@ -216,7 +217,7 @@ export class WorktreeWorkspace implements Workspace {
 	/**
 	 * Blast-radius check: the agent-modified paths (working tree, vs the base the
 	 * worktree forked from) that match NONE of the configured scope globs, or null
-	 * when every change is in scope (or no scope was set). The seeded oracle is
+	 * when every change is in scope (or no scope was set). The seeded contract is
 	 * committed into the base, so it never appears here -- only the agent's own
 	 * uncommitted edits are scoped.
 	 */
@@ -271,11 +272,11 @@ function shellQuote(value: string): string {
 }
 
 /**
- * Copy shared files (e.g. .env.local) from the source repo into the worktree:
+ * Link host files (e.g. .env.local) from the source repo into the worktree:
  * symlink, falling back to a copy. A fresh worktree lacks gitignored files, so
- * a gate that needs them (an app's integration suite) can opt in via `--share`.
+ * a gate that needs them (an app's integration suite) can opt in via `--link`.
  */
-async function copyShared(srcRoot: string, destRoot: string, patterns: string[]): Promise<void> {
+async function linkFiles(srcRoot: string, destRoot: string, patterns: string[]): Promise<void> {
 	const seen = new Set<string>();
 	for (const pattern of patterns) {
 		for await (const rel of glob(pattern, { cwd: srcRoot, exclude: excludeHeavyDirs })) {
@@ -293,18 +294,18 @@ async function copyShared(srcRoot: string, destRoot: string, patterns: string[])
 	}
 }
 
-/** Prune node_modules/.git when walking the source tree for shared-file globs. */
+/** Prune node_modules/.git when walking the source tree for linked-file globs. */
 function excludeHeavyDirs(path: string): boolean {
 	return path === "node_modules" || path === ".git" || path.includes("/node_modules") || path.includes("/.git");
 }
 
 /**
- * Copy oracle file(s) from the source tree into the worktree and commit them
- * into the base, so they are present at HEAD and {@link WorktreeWorkspace.assertFrozen}
+ * Copy contract file(s) from the source tree into the worktree and commit them
+ * into the base, so they are present at HEAD and {@link WorktreeWorkspace.assertContract}
  * can diff against them. Returns the committed relative paths. A missing source
- * file is fatal (a user error in `--oracle`).
+ * file is fatal (a user error in `--contract`).
  */
-async function seedOracle(
+async function seedContract(
 	srcRoot: string,
 	destRoot: string,
 	files: string[],
@@ -316,22 +317,22 @@ async function seedOracle(
 		try {
 			await cp(join(srcRoot, rel), dest);
 		} catch {
-			throw new Error(`anvil: --oracle file not found in the source repo: ${rel}`);
+			throw new Error(`anvil: --contract file not found in the source repo: ${rel}`);
 		}
 	}
 	const add = await exec(`git add ${files.map(shellQuote).join(" ")}`);
 	if (add.exitCode !== 0) {
-		throw new Error(`anvil: could not stage oracle file(s): ${(add.stderr || add.stdout).trim()}`);
+		throw new Error(`anvil: could not stage contract file(s): ${(add.stderr || add.stdout).trim()}`);
 	}
 	// `git diff --cached --quiet` exits non-zero when there ARE staged changes.
 	const staged = await exec("git diff --cached --quiet");
 	if (staged.exitCode !== 0) {
 		// --no-verify: see WorktreeWorkspace.commit -- skip project pre-commit hooks.
-		const commit = await exec(`git commit -m ${shellQuote("anvil: seed verification oracle")} --no-verify`, {
+		const commit = await exec(`git commit -m ${shellQuote("anvil: seed contract")} --no-verify`, {
 			env: GIT_IDENTITY,
 		});
 		if (commit.exitCode !== 0) {
-			throw new Error(`anvil: could not commit oracle file(s): ${(commit.stderr || commit.stdout).trim()}`);
+			throw new Error(`anvil: could not commit contract file(s): ${(commit.stderr || commit.stdout).trim()}`);
 		}
 	}
 	return files;

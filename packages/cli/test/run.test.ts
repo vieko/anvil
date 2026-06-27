@@ -48,9 +48,9 @@ function capture(): { io: Io; lines: string[] } {
 
 const opts = (over: Partial<RunOptions> = {}): RunOptions => ({
 	verify: [],
-	share: [],
+	link: [],
 	install: true,
-	oracle: [],
+	contract: [],
 	scope: [],
 	quiet: false,
 	verbose: false,
@@ -102,7 +102,7 @@ describe("executeRun", () => {
 		);
 		expect(code).toBe(0);
 		expect(out).toHaveLength(1); // exactly one JSON line on stdout, no prose
-		// A weak green: auto-detected gate, no oracle, no scope -> a caller should flag
+		// A weak green: auto-detected gate, no contract, no scope -> a caller should flag
 		// this for review rather than integrate blind.
 		expect(JSON.parse(out[0])).toEqual({
 			id: "feat",
@@ -111,7 +111,7 @@ describe("executeRun", () => {
 			finalModel: "sonnet",
 			branch: "anvil/feat/abc",
 			gate: { commands: [], source: "autodetect" },
-			oracle: false,
+			contract: false,
 			scope: false,
 		});
 	});
@@ -130,16 +130,16 @@ describe("executeRun", () => {
 		};
 		const code = await executeRun(
 			{ id: "feat", prompt: "p", base: { model: "sonnet" } },
-			opts({ json: true, verify: ["tsc --noEmit"], oracle: ["oracle.test.ts"], scope: ["src/**"] }),
+			opts({ json: true, verify: ["tsc --noEmit"], contract: ["contract.test.ts"], scope: ["src/**"] }),
 			{ agent: fakeAgent(), workspace: fakeWorkspace(), gate: provenanceGate, persist: new MemoryStatePersister() },
 			io,
 		);
 		expect(code).toBe(0);
-		// A strong green: explicit verify, a held oracle, a held scope -> safe to integrate blind.
+		// A strong green: explicit verify, a held contract, a held scope -> safe to integrate blind.
 		expect(JSON.parse(out[0])).toMatchObject({
 			passed: true,
 			gate: { commands: ["tsc --noEmit"], source: "explicit" },
-			oracle: true,
+			contract: true,
 			scope: true,
 		});
 	});
