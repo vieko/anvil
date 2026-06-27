@@ -1,6 +1,6 @@
 # Anvil
 
-**A command decides done. Not a model. Done is proven, not claimed.**
+**Outcome-driven, command-verified delegation for AI coding.**
 
 Anvil hands a coding task to an agent in an isolated git worktree and loops it,
 feeding back each failure, until a gate passes or it hits the attempt cap. The
