@@ -9,22 +9,6 @@ typecheck, and test. Describe what must be true and how to check it, and Anvil
 loops the agent, feeding back every failure, until the gate is green or it hits
 the attempt cap.
 
-Reach for Anvil over a model-judged loop like Codex's or Claude Code's `/goal`
-when "done" is checkable and you'd rather trust a green than re-read the diff:
-nothing comes back until a real command passes, and every run is fenced in a
-worktree it can't escape. The trade, and why it's worth making, is in
-[Say No](https://vieko.dev/say-no).
-
-```
-define outcome  →  agent works  →  deterministic gate  →  loop on failure
-```
-
-```bash
-anvil run "make the failing parser tests pass"
-# agent works in an isolated worktree; the gate (tsc + tests) decides done
-# + parser-tests: passed in 2 attempts  →  branch anvil/parser-tests/lz4k9
-```
-
 Anvil is the reliability-first spine of [forge](https://github.com/vieko/forge),
 extracted clean: the gate and the loop are the most-tested, most paranoid code in
 the repo, and orchestration is thin glue on top. See
@@ -33,15 +17,13 @@ the repo, and orchestration is thin glue on top. See
 ## Requirements
 
 - [Node.js](https://nodejs.org) >= 22.19.0
-- An API key for the model provider. Anvil is built on [Pi](https://pi.dev) and
-  inherits its provider/key resolution. The default models (`sonnet` / `opus` /
-  `haiku`) route through Vercel's AI Gateway, so set `AI_GATEWAY_API_KEY`, or
-  pass `--model <provider>:<id>` and set that provider's key (e.g.
-  `ANTHROPIC_API_KEY`).
+- A model API key. The default models route through Vercel's AI Gateway, so set
+  `AI_GATEWAY_API_KEY` (or pass `--model <provider>:<id>` and set that provider's
+  key, e.g. `ANTHROPIC_API_KEY`).
 
 ## Install
 
-Anvil is not yet on npm. Build it from source:
+Build it from source:
 
 ```bash
 git clone https://github.com/vieko/anvil.git
@@ -89,22 +71,19 @@ Key options (`anvil --help` for the rest):
 1. Anvil cuts an isolated **linked worktree** on a fresh branch
    `anvil/<id>/<ts>`. Your working tree is never touched, so a run can't stomp
    uncommitted work.
-2. The agent (Pi-backed, with `read` / `edit` / `write` / `bash` tools) works
-   the outcome inside that worktree.
+2. The agent works the outcome inside that worktree (`read` / `edit` / `write` /
+   `bash` tools).
 3. The **gate** runs your verification commands in a clean environment and has
    the only vote on "done":
-   - **pass** → Anvil commits the work on the branch and stops.
-   - **fail** → the errors go back into the next attempt, and the model climbs an
-     **escalation ladder** (cheapest model that clears the gate, Sonnet by
-     default, stronger only when the gate keeps failing).
-   - **inconclusive** (a flake, a timeout, or no gate at all) → Anvil re-verifies
-     instead of feeding garbage back, and never calls it a pass.
-4. The loop always ends at the attempt cap. State is persisted at every step (in
-   a user-level dir, never in your repo), so `status` is exact and a passed
-   outcome is never redone.
+   - **pass** → Anvil commits the work and stops.
+   - **fail** → the errors feed the next attempt, and the model escalates
+     (Sonnet by default, stronger only when the gate keeps failing).
+   - **inconclusive** (a flake, a timeout, or no gate) → Anvil re-verifies rather
+     than call it a pass.
+4. The loop ends at the attempt cap. State persists outside your repo, so
+   `status` is exact and a passed outcome is never redone.
 
-Nothing comes back until a command says it passed, so the work already builds and
-the tests are green by the time you look. You still review, then merge:
+The result lives on its branch. Review, then merge:
 
 ```bash
 git -C <repo> merge anvil/<id>/<ts>   # or cherry-pick the commit
@@ -112,8 +91,7 @@ git -C <repo> merge anvil/<id>/<ts>   # or cherry-pick the commit
 
 ## Guards
 
-A command is only as honest as what it checks, and an agent that can edit the
-test can make anything pass. So Anvil doesn't let it:
+An agent that can edit the check can pass anything. The guards stop that:
 
 - `--oracle <file>`: seed the check the agent must clear, out of its reach. Edit
   it, and the run is void.
@@ -143,20 +121,15 @@ instead of re-reading the diff:
 }
 ```
 
-A **strong green** (explicit `--verify`, a held oracle, a held scope) is safe to
-integrate blind. A **weak green** (auto-detected, no guards) wants a human first.
+## Drive it from any harness
 
-## Works with
+Anvil is a standalone CLI, so any agent or CI script can drive it: phrase the
+outcome, call `anvil run --json`, and act on the verdict. No plugin, no lock-in
+to one harness; [Claude Code](https://www.anthropic.com/claude-code), Codex, and
+the rest all work. `anvil skills get core` prints a guide an agent reads to learn
+the conventions.
 
-Anvil is a standalone CLI, so any agent harness that can run a shell command can
-drive it, no plugin required: phrase the outcome, call `anvil run --json`, and
-reconcile the result branch from the verdict. That covers
-[Claude Code](https://www.anthropic.com/claude-code), Codex, and other coding
-agents, or a plain CI script. `anvil skills get core` prints a harness-agnostic
-guide an agent can read to learn how to phrase outcomes and interpret the result.
-
-Under the hood Anvil is built on [Pi](https://pi.dev): its `read` / `edit` /
-`write` / `bash` tools and the `PiAgent` driver run on Pi's agent runtime.
+Built on [Pi](https://pi.dev).
 
 ## Develop
 
@@ -166,10 +139,10 @@ npm run check     # the one gate: biome -> tsc --noEmit -> build -> test
 npm test          # vitest only
 ```
 
-`@anvil/core` is runtime-agnostic (the `.` export imports no node builtins, no
-git, no SDK); node-bound seams live behind `@anvil/core/node`. The engine seams
-(`Agent` / `Workspace` / `Gate` / `StatePersister`) are injected interfaces, so
-the test suite drives the loop with fakes: no real model, git, or filesystem.
+`@anvil/core` is runtime-agnostic; its node-bound seams (worktree, gate, agent)
+live behind `@anvil/core/node`. Those seams (`Agent`, `Workspace`, `Gate`,
+`StatePersister`) are injected interfaces, so tests drive the loop with fakes,
+no real model, git, or filesystem needed.
 
 ## License
 
