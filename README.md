@@ -1,7 +1,6 @@
 # anvil
 
-**Verified outcomes for autonomous agents.**
-**Done is proven, not claimed.**
+**Verified outcomes for autonomous agents. Done is proven, not claimed.**
 
 Describe what must be true. anvil runs an agent in an isolated git worktree and
 loops until a deterministic gate — a command, not a model — says it's done. The
