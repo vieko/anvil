@@ -9,9 +9,11 @@ typecheck, and test. Describe what must be true and how to check it, and Anvil
 loops the agent, feeding back every failure, until the gate is green or it hits
 the attempt cap.
 
-A command, not a model, has the only vote on "done", so a run can't talk its way
-to green, and it never touches your working tree. The catch is that Anvil only
-takes outcomes you can check; the reasoning is in [Say No](https://vieko.dev/say-no).
+Reach for Anvil over a model-judged loop like Codex's or Claude Code's `/goal`
+when "done" is checkable and you'd rather trust a green than re-read the diff:
+nothing comes back until a real command passes, and every run is fenced in a
+worktree it can't escape. The trade, and why it's worth making, is in
+[Say No](https://vieko.dev/say-no).
 
 ```
 define outcome  →  agent works  →  deterministic gate  →  loop on failure
