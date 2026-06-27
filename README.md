@@ -2,10 +2,10 @@
 
 **Outcome-driven, command-verified agent execution. Check what you can't trust.**
 
-Anvil hands a coding task to an agent in an isolated git worktree and loops it,
-feeding back each failure, until a gate passes or it hits the attempt cap. The
-gate is what counts as done: a command you supply with `--verify`, or an
-auto-detected build, typecheck, and test.
+Give Anvil an outcome, and it runs an agent in an isolated git worktree, looping
+and feeding back each failure until a gate passes or it hits the attempt cap. The
+gate decides done: a command you supply with `--verify`, or an auto-detected
+build, typecheck, and test.
 
 Anvil is the reliability-first spine of [forge](https://github.com/vieko/forge),
 extracted clean: the gate and the loop are the most-tested, most paranoid code in
