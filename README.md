@@ -1,6 +1,6 @@
 # Anvil
 
-**The agent works until a command says done. Not until a model says so.**
+**A command decides done. Not a model. Done is proven, not claimed.**
 
 Anvil hands a coding task to an agent in an isolated git worktree and loops it,
 feeding back each failure, until a gate passes or it hits the attempt cap. The
