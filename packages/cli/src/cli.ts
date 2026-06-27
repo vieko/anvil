@@ -141,7 +141,7 @@ run options:
   -C, --dir <path>        Target repository (default: current directory)
       --base <ref>        Ref to fork the worktree from (default: HEAD; e.g.
                           "main" to fork from main regardless of the checkout)
-      --model <name>      Base model: alias (sonnet/opus/haiku) or provider:id
+      --model <name>      Base model: alias (haiku/sonnet/opus) or provider:id
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
       --share <glob>      Copy file(s) into the worktree before the run

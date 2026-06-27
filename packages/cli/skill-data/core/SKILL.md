@@ -34,7 +34,7 @@ anvil run "<outcome>" -C <repo> [--verify "<cmd>"]...
   mirror of `--oracle`: freeze guards files the agent must *not* touch; scope
   bounds the set it *may* touch. Use it to cap blast radius when the gate
   can't fully specify the contract.
-- `--model <alias|provider:id>` — base model: `sonnet` / `opus` / `haiku`, or a
+- `--model <alias|provider:id>` — base model: `haiku` / `sonnet` / `opus`, or a
   concrete `provider:model-id`. Default `sonnet`.
 - `-n, --max-attempts <n>` — attempt cap before giving up (default `3`).
 - `--share <glob>` — copy file(s) into the worktree before the run (e.g.

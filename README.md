@@ -59,7 +59,7 @@ Key options (`anvil --help` for the rest):
 | `--verify "<cmd>"` | Gate command, repeatable. Omit it and Anvil auto-detects typecheck/build/test from `package.json`. |
 | `--oracle <file>` | Seed a check (typically a failing test) into the worktree and **freeze** it: the agent must satisfy it, never edit it. The strongest gate. |
 | `--scope <glob>` | Fence the agent into these paths; a change outside **voids the run**. |
-| `--model <alias\|provider:id>` | Base model: `sonnet` / `opus` / `haiku`, or a concrete `provider:model-id`. Default `sonnet`. |
+| `--model <alias\|provider:id>` | Base model: `haiku` / `sonnet` / `opus`, or a concrete `provider:model-id`. Default `sonnet`. |
 | `-n, --max-attempts <n>` | Attempt cap before giving up (default `3`). |
 | `-v, --verbose` | Stream the agent's tool calls + gate progress to stderr. |
 | `--json` | Emit a machine-readable result; human chrome and `-v` move to stderr. |

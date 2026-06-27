@@ -72,7 +72,7 @@ Set the base with `--model`; the climb is automatic.
 
 ## Model aliases
 
-`sonnet` / `opus` / `haiku` resolve to current Anthropic models through the
+`haiku` / `sonnet` / `opus` resolve to current Anthropic models through the
 Vercel AI Gateway (one key, `AI_GATEWAY_API_KEY`). Or pass a concrete
 `provider:model-id`. The default base is `sonnet`.
 
