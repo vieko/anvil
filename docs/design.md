@@ -281,11 +281,11 @@ Decisions are driven by usage data, not speculation. These are intentionally
   because the ladder is only two levels and intent reads clearer; `-vv` stacking
   is reserved for a future 3+ level ladder. `--reasoning` is **display-only**: it
   surfaces whatever thinking the model emits, which is effort-dependent (the
-  default base sets no effort, so attempt 0 may show nothing; escalation rungs
-  that raise effort will). To keep that boundary clean, **`--effort` is reserved
-  for the (unbuilt) reasoning-*level* setter** — `--reasoning` shows the trace,
-  `--effort` would turn it up. Build `--effort` on a concrete need to drive
-  thinking depth from the CLI.
+  default base is `sonnet/high`, so attempt 0 already reasons at high effort;
+  escalation rungs climb further). To keep that boundary clean, **`--effort` is
+  reserved for the (unbuilt) reasoning-*level* setter** — `--reasoning` shows
+  the trace, `--effort` would turn it up. Build `--effort` on a concrete need
+  to drive thinking depth from the CLI.
 - **Use-driven ergonomics (named, not built).** Two gaps usage will likely
   surface first: linked worktrees **accumulate** in `<repo>-anvil/` (one per run,
   never cleaned) → a `prune` may earn itself; and there is no helper to **merge** a
