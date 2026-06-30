@@ -204,7 +204,7 @@ Track A (build — the spine is settled, needs no usage data):
   durable `FileStatePersister` (node, atomic per-outcome JSON), with
   `runToGate({ resume: true })` returning terminal records immediately and
   continuing a non-terminal one (reused session + rebuilt retry prompt).
-  **A4 is complete.** The CLI surface landed (`packages/cli`, `@anvil/cli`:
+  **A4 is complete.** The CLI surface landed (`packages/cli`, `@vieko/anvil`:
   `anvil run` + `status`) as a thin layer over the finished engine, and the
   in-scope forge-parity test port landed — false-pass guards (the one real gap
   it surfaced), the escalation-ladder contract, and the run-loop assertions
@@ -229,7 +229,7 @@ its gate/verify and worktree edge-case tests, but nothing routes *through* it.
 
 The engine "wins" when `anvil run <spec>` — the 80% common case forge served —
 runs at behavior parity, proven by ported forge tests. The CLI is a thin surface
-(`packages/cli`, `@anvil/cli`) over the finished `runToGate` engine; the engine
+(`packages/cli`, `@vieko/anvil`) over the finished `runToGate` engine; the engine
 itself does not change to get there. **Met (A4):** the CLI (`anvil run` +
 `status`) landed and the in-scope forge-parity tests are green (core suite
 67 -> 85).
