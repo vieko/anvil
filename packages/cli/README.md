@@ -1,4 +1,4 @@
-# @anvil/cli
+# @vieko/anvil
 
 anvil's first-class CLI: **define an outcome, the agent works, a deterministic
 gate decides done.** A thin surface over the `@anvil/core` engine — anvil is

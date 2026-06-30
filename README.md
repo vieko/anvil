@@ -23,14 +23,20 @@ the repo, and orchestration is thin glue on top. See
 
 ## Install
 
-Build it from source:
+```bash
+npm install -g @vieko/anvil          # the `anvil` command, globally
+# or run it without installing:
+npx @vieko/anvil run "implement feature X" -C /path/to/repo
+```
+
+### From source (for development)
 
 ```bash
 git clone https://github.com/vieko/anvil.git
 cd anvil
 npm install
 npm run build
-npm link --workspace @anvil/cli   # makes `anvil` available globally
+npm link --workspace @vieko/anvil   # makes `anvil` available globally
 ```
 
 Or run it straight from source without linking:
