@@ -37,8 +37,17 @@ async function main(): Promise<number> {
 		case "run": {
 			const dir = cmd.options.dir ?? process.cwd();
 			const outcome = await resolveOutcome(cmd.outcome, cmd.options);
-			const onActivity = cmd.options.verbose
-				? (event: AgentActivity) => consoleIo.err(renderActivity(event))
+			// `--reasoning` implies `-v` (no thoughts-without-actions state) and is
+			// the only thing that unlocks reasoning lines; tool lines stream whenever
+			// either is set. The surface filters by kind so core can emit reasoning
+			// unconditionally.
+			const showReasoning = cmd.options.reasoning;
+			const showActivity = cmd.options.verbose || showReasoning;
+			const onActivity = showActivity
+				? (event: AgentActivity) => {
+						if (event.kind === "reasoning" && !showReasoning) return;
+						consoleIo.err(renderActivity(event));
+					}
 				: undefined;
 			const { deps, workspace, branch } = await buildRunDeps(outcome.id, dir, cmd.options, onActivity);
 			// In --json mode stdout is reserved for the JSON result, so the human run

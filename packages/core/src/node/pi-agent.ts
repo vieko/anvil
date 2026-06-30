@@ -132,8 +132,12 @@ export class PiAgent implements Agent {
 
 /**
  * Translate a pi harness event into an anvil {@link AgentActivity}, forwarding
- * tool-call lifecycle to the sink. Non-tool events (text/turn lifecycle) are
- * ignored — the `-v` view is the agent's actions, not its prose.
+ * tool-call lifecycle and the reasoning trace to the sink. The sink (the
+ * surface) decides which kinds to render — reasoning is gated behind an opt-in,
+ * so emitting it here is free when nobody asks for it. Reasoning is forwarded
+ * once per segment, on `thinking_end` (the complete block), rather than as
+ * token deltas: an append-only stream reads cleaner as whole thoughts. Text and
+ * turn lifecycle remain ignored.
  */
 function forwardActivity(event: AgentHarnessEvent, sink: AgentEventSink): void {
 	switch (event.type) {
@@ -143,6 +147,13 @@ function forwardActivity(event: AgentHarnessEvent, sink: AgentEventSink): void {
 		case "tool_execution_end":
 			sink({ kind: "tool-end", tool: event.toolName, ok: !event.isError });
 			break;
+		case "message_update": {
+			const inner = event.assistantMessageEvent;
+			if (inner.type === "thinking_end" && inner.content.trim()) {
+				sink({ kind: "reasoning", text: inner.content });
+			}
+			break;
+		}
 	}
 }
 

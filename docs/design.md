@@ -275,6 +275,17 @@ Decisions are driven by usage data, not speculation. These are intentionally
   latest record per outcome; an append-log (JSONL) variant would give the full
   timeline. Pure observability polish, zero correctness impact. Reopen when a TUI
   or a concrete debugging session makes the timeline pull its weight.
+- **Reasoning display (`-v` vs `--reasoning`) and reserved `--effort`.** `-v`
+  streams the agent's *actions* (tool calls) + gate progress; `--reasoning` adds
+  the model's *thinking trace* and implies `-v`. It is a named flag, not `-vv`,
+  because the ladder is only two levels and intent reads clearer; `-vv` stacking
+  is reserved for a future 3+ level ladder. `--reasoning` is **display-only**: it
+  surfaces whatever thinking the model emits, which is effort-dependent (the
+  default base sets no effort, so attempt 0 may show nothing; escalation rungs
+  that raise effort will). To keep that boundary clean, **`--effort` is reserved
+  for the (unbuilt) reasoning-*level* setter** — `--reasoning` shows the trace,
+  `--effort` would turn it up. Build `--effort` on a concrete need to drive
+  thinking depth from the CLI.
 - **Use-driven ergonomics (named, not built).** Two gaps usage will likely
   surface first: linked worktrees **accumulate** in `<repo>-anvil/` (one per run,
   never cleaned) → a `prune` may earn itself; and there is no helper to **merge** a

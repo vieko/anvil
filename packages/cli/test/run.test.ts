@@ -54,6 +54,7 @@ const opts = (over: Partial<RunOptions> = {}): RunOptions => ({
 	scope: [],
 	quiet: false,
 	verbose: false,
+	reasoning: false,
 	json: false,
 	...over,
 });
@@ -170,6 +171,9 @@ describe("renderActivity", () => {
 		expect(renderActivity({ kind: "tool-start", tool: "read" })).toBe("  > read");
 		expect(renderActivity({ kind: "tool-end", tool: "bash", ok: true })).toBe("  + bash");
 		expect(renderActivity({ kind: "tool-end", tool: "edit", ok: false })).toBe("  x edit");
+		expect(renderActivity({ kind: "reasoning", text: "first line\nsecond line" })).toBe(
+			"  ~ first line\n  ~ second line",
+		);
 	});
 });
 

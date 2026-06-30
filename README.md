@@ -63,6 +63,7 @@ Key options (`anvil --help` for the rest):
 | `--model <alias\|provider:id>` | Base model: `haiku` / `sonnet` / `opus`, or a concrete `provider:model-id`. Default `sonnet`. |
 | `-n, --max-attempts <n>` | Attempt cap before giving up (default `3`). |
 | `-v, --verbose` | Stream the agent's tool calls + gate progress to stderr. |
+| `--reasoning` | Also stream the agent's reasoning trace (implies `-v`). Display-only; shows thinking when the model emits it. |
 | `--json` | Emit a machine-readable result; human chrome and `-v` move to stderr. |
 
 ## How it works

@@ -60,10 +60,15 @@ export interface Agent {
  * A live activity event emitted by the agent during a dispatch, for streaming
  * and logging. Provider-agnostic: node impls translate their native events
  * (e.g. pi's AgentEvent) into this minimal shape so the surface can render it.
+ *
+ * `tool-start`/`tool-end` are the agent's actions (the `-v` view); `reasoning`
+ * is the model's thinking trace, surfaced separately so the surface can gate it
+ * behind an opt-in (`--reasoning`) without leaking prose into the default view.
  */
 export type AgentActivity =
 	| { kind: "tool-start"; tool: string; summary?: string }
-	| { kind: "tool-end"; tool: string; ok: boolean };
+	| { kind: "tool-end"; tool: string; ok: boolean }
+	| { kind: "reasoning"; text: string };
 
 /** Sink for {@link AgentActivity} events. Wired by the surface to render `-v` output. */
 export type AgentEventSink = (event: AgentActivity) => void;
