@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { Model } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai";
+import {
+	fauxAssistantMessage,
+	fauxText,
+	fauxThinking,
+	fauxToolCall,
+	registerFauxProvider,
+} from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentActivity, ModelEffort } from "../src/index.ts";
 import { PiAgent } from "../src/node/pi-agent.ts";
@@ -108,5 +114,21 @@ describe("PiAgent.dispatch", () => {
 		expect(entries.some((entry) => String(entry).endsWith(".jsonl"))).toBe(true);
 
 		await rm(sessionsRoot, { recursive: true, force: true });
+	});
+
+	it("forwards the model's reasoning trace as a reasoning activity (on thinking_end)", async () => {
+		const reasoning = faux.getModel(); // faux models emit thinking content as thinking_* events
+		faux.setResponses([fauxAssistantMessage([fauxThinking("weigh the options, then act"), fauxText("done")])]);
+		const activity: AgentActivity[] = [];
+		const agent = new PiAgent({
+			env,
+			resolveModel: () => reasoning,
+			systemPrompt: "test",
+			onActivity: (event) => activity.push(event),
+		});
+
+		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap", effort: "high" } });
+
+		expect(activity).toContainEqual({ kind: "reasoning", text: "weigh the options, then act" });
 	});
 });

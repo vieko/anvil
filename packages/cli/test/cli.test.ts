@@ -19,6 +19,7 @@ describe("parse", () => {
 				scope: [],
 				quiet: false,
 				verbose: false,
+				reasoning: false,
 				json: false,
 			},
 		});
@@ -65,9 +66,15 @@ describe("parse", () => {
 				scope: ["apps/**/route.ts"],
 				quiet: true,
 				verbose: true,
+				reasoning: false,
 				json: false,
 			},
 		});
+	});
+
+	it("parses --reasoning (display-only; --effort stays unknown/reserved)", () => {
+		expect(parse(["run", "x", "--reasoning"])).toMatchObject({ kind: "run", options: { reasoning: true } });
+		expect(parse(["run", "x", "--effort", "high"])).toMatchObject({ kind: "error" });
 	});
 
 	it("parses --json for run and status", () => {

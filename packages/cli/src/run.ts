@@ -77,8 +77,10 @@ export async function executeRun(outcome: Outcome, options: RunOptions, deps: Ru
 }
 
 /**
- * Render a live agent activity event as one concise ASCII line for `-v` output.
- * Indented to nest under the run header. `>` running, `+` ok, `x` error.
+ * Render a live agent activity event as concise ASCII for `-v` output. Indented
+ * to nest under the run header. `>` running, `+` ok, `x` error, `~` reasoning.
+ * Reasoning blocks span multiple lines; each line is prefixed so the trace reads
+ * as a distinct, dim-by-convention block rather than as actions.
  */
 export function renderActivity(event: AgentActivity): string {
 	switch (event.kind) {
@@ -86,6 +88,12 @@ export function renderActivity(event: AgentActivity): string {
 			return event.summary ? `  > ${event.tool}: ${event.summary}` : `  > ${event.tool}`;
 		case "tool-end":
 			return `  ${event.ok ? "+" : "x"} ${event.tool}`;
+		case "reasoning":
+			return event.text
+				.trim()
+				.split("\n")
+				.map((line) => `  ~ ${line}`)
+				.join("\n");
 	}
 }
 

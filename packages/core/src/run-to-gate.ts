@@ -57,7 +57,7 @@ export interface RunToGateResult {
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
-const DEFAULT_BASE: ModelEffort = { model: "sonnet" };
+const DEFAULT_BASE: ModelEffort = { model: "sonnet", effort: "high" };
 
 /**
  * Run one outcome to the gate.

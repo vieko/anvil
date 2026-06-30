@@ -20,6 +20,11 @@ export interface RunOptions {
 	quiet: boolean;
 	/** Stream the agent's tool calls + gate progress to stderr as it works. */
 	verbose: boolean;
+	/**
+	 * Also stream the agent's reasoning trace to stderr. Display-only and implies
+	 * `--verbose`; the reserved `--effort` is the (future) reasoning-level setter.
+	 */
+	reasoning: boolean;
 	/** Emit a machine-readable JSON result to stdout (human chrome + `-v` go to stderr). */
 	json: boolean;
 }
@@ -57,6 +62,10 @@ export function parse(argv: string[]): Command {
 				full: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
 				verbose: { type: "boolean", short: "v" },
+				// `--reasoning` is display-only (the thinking trace). `--effort` is
+				// intentionally reserved for a future reasoning-*level* setter (the
+				// `Effort` knob) and must not be repurposed for display.
+				reasoning: { type: "boolean" },
 				json: { type: "boolean" },
 				help: { type: "boolean", short: "h" },
 				version: { type: "boolean" },
@@ -102,6 +111,7 @@ export function parse(argv: string[]): Command {
 					install: !((values["no-install"] as boolean | undefined) ?? false),
 					quiet: (values.quiet as boolean | undefined) ?? false,
 					verbose: (values.verbose as boolean | undefined) ?? false,
+					reasoning: (values.reasoning as boolean | undefined) ?? false,
 					json: (values.json as boolean | undefined) ?? false,
 				},
 			};
@@ -153,6 +163,8 @@ run options:
       --scope <glob>      Restrict which paths the agent may modify (repeatable;
                           e.g. "src/**"). A change outside voids the run.
   -v, --verbose           Stream the agent's actions + gate progress (to stderr)
+      --reasoning         Also stream the agent's reasoning trace (implies -v;
+                          display-only — shows thinking when the model emits it)
   -q, --quiet             Print only the final verdict
       --json              Emit a machine-readable JSON result to stdout (human
                           chrome and -v stream go to stderr). Works for run and
