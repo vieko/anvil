@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import type { Effort } from "@anvil/core";
 
 /** Options for the `run` command, parsed from argv. `dir` defaults to cwd at the surface. */
 export interface RunOptions {
@@ -6,6 +7,8 @@ export interface RunOptions {
 	/** Ref to fork the worktree from (default HEAD). Use "main" to fork from main regardless of the checked-out branch. */
 	from?: string;
 	model?: string;
+	/** Base reasoning effort level. undefined → DEFAULT_EFFORT ("high") is applied at the runToGate boundary. */
+	effort?: Effort;
 	maxAttempts?: number;
 	/** Explicit gate commands; when empty the gate auto-detects. */
 	verify: string[];
@@ -53,6 +56,7 @@ export function parse(argv: string[]): Command {
 				dir: { type: "string", short: "C" },
 				from: { type: "string" },
 				model: { type: "string" },
+				effort: { type: "string" },
 				"max-attempts": { type: "string", short: "n" },
 				verify: { type: "string", multiple: true },
 				link: { type: "string", multiple: true },
@@ -62,9 +66,8 @@ export function parse(argv: string[]): Command {
 				full: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
 				verbose: { type: "boolean", short: "v" },
-				// `--reasoning` is display-only (the thinking trace). `--effort` is
-				// intentionally reserved for a future reasoning-*level* setter (the
-				// `Effort` knob) and must not be repurposed for display.
+				// `--reasoning` is display-only (the thinking trace).
+				// `--effort` is the reasoning-level setter (the `Effort` knob).
 				reasoning: { type: "boolean" },
 				json: { type: "boolean" },
 				help: { type: "boolean", short: "h" },
@@ -96,6 +99,18 @@ export function parse(argv: string[]): Command {
 					return { kind: "error", message: `--max-attempts must be a positive integer (got "${raw}")` };
 				}
 			}
+			const VALID_EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
+			let effort: Effort | undefined;
+			const rawEffort = values.effort as string | undefined;
+			if (rawEffort !== undefined) {
+				if (!VALID_EFFORTS.includes(rawEffort)) {
+					return {
+						kind: "error",
+						message: `--effort must be one of: ${VALID_EFFORTS.join(", ")} (got "${rawEffort}")`,
+					};
+				}
+				effort = rawEffort as Effort;
+			}
 			return {
 				kind: "run",
 				outcome,
@@ -103,6 +118,7 @@ export function parse(argv: string[]): Command {
 					dir,
 					from: values.from as string | undefined,
 					model: values.model as string | undefined,
+					effort,
 					maxAttempts,
 					verify: (values.verify as string[] | undefined) ?? [],
 					link: (values.link as string[] | undefined) ?? [],
@@ -152,6 +168,8 @@ run options:
       --from <ref>        Ref to fork the worktree from (default: HEAD; e.g.
                           "main" to fork from main regardless of the checkout)
       --model <name>      Base model: alias (haiku/sonnet/opus) or provider:id
+      --effort <level>    Base reasoning effort: low|medium|high|xhigh|max
+                          (default: high when omitted)
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
       --link <glob>       Link file(s) into the worktree before the run (symlink,
@@ -164,7 +182,8 @@ run options:
                           e.g. "src/**"). A change outside voids the run.
   -v, --verbose           Stream the agent's actions + gate progress (to stderr)
       --reasoning         Also stream the agent's reasoning trace (implies -v;
-                          display-only — shows thinking when the model emits it)
+                          display-only — shows thinking the model emits;
+                          use --effort to set the thinking level)
   -q, --quiet             Print only the final verdict
       --json              Emit a machine-readable JSON result to stdout (human
                           chrome and -v stream go to stderr). Works for run and

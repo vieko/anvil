@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import type { Agent, AgentActivity, Gate, Outcome, StatePersister, Workspace } from "@anvil/core";
+import type { Agent, AgentActivity, Gate, ModelEffort, Outcome, StatePersister, Workspace } from "@anvil/core";
 import { runToGate } from "@anvil/core";
 import type { RunOptions } from "./cli.ts";
 
@@ -103,7 +103,14 @@ export function renderActivity(event: AgentActivity): string {
  * (id = slug). Multi-word arguments are never treated as paths.
  */
 export async function resolveOutcome(arg: string, options: RunOptions): Promise<Outcome> {
-	const base = options.model ? { model: options.model } : undefined;
+	// Build a base when EITHER --model or --effort is set, so `--effort max` works
+	// standalone (not only alongside --model). The model defaults to "sonnet" to
+	// match DEFAULT_BASE.model in @anvil/core; an unset effort is normalized to
+	// DEFAULT_EFFORT at the runToGate boundary.
+	let base: ModelEffort | undefined;
+	if (options.model || options.effort !== undefined) {
+		base = { model: options.model ?? "sonnet", effort: options.effort };
+	}
 	const spec = await readSpec(arg);
 	return spec ? { id: spec.id, prompt: spec.prompt, base } : { id: slugify(arg), prompt: arg, base };
 }
