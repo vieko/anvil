@@ -297,10 +297,13 @@ Decisions are driven by usage data, not speculation. These are intentionally
   scrollback), where a redraw TUI corrupts output and the dependency violates
   the `pi-agent-core` + `pi-ai`-only substrate rule. The glyph vocabulary (`>`
   running, `+` ok, `x` fail, `~` thinking) deliberately reads like a
-  gate/test-runner, not a chat agent — the right identity signal. The only piece
-  worth revisiting is a small **TTY-gated ANSI layer** behind `renderActivity`
-  (dim reasoning, green `+`, red `x`; byte-for-byte plain when piped); reopen
-  when skimming a live `-v` run is actually hard, not before.
+  gate/test-runner, not a chat agent — the right identity signal. The one piece
+  that earned itself is a small **TTY-gated ANSI layer** (`color.ts`): an
+  injected `Palette` adds dim reasoning, green `+`, red `x`, a bold header, and a
+  green/red verdict on a terminal, gated per destination stream so piped /
+  `tee`'d / `capture-pane`'d output (or a redirected stdout alone) stays
+  byte-for-byte plain. `NO_COLOR` is honored. The TUI port stays rejected for
+  the reasons above.
 - **Use-driven ergonomics (named, not built).** Two gaps usage will likely
   surface first: linked worktrees **accumulate** in `<repo>-anvil/` (one per run,
   never cleaned) → a `prune` may earn itself; and there is no helper to **merge** a

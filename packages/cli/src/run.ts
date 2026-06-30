@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import type { Agent, AgentActivity, Gate, ModelEffort, Outcome, StatePersister, Workspace } from "@anvil/core";
 import { runToGate } from "@anvil/core";
 import type { RunOptions } from "./cli.ts";
+import { type Palette, type Palettes, plainPalette, plainPalettes } from "./color.ts";
 
 /** The four engine seams the `run` command drives. */
 export interface RunDeps {
@@ -32,7 +33,13 @@ export const consoleIo: Io = {
  * exit code (0 = passed, 1 = failed). The deps are injected, so this is the
  * unit-testable heart of the command — no model, no git, no network required.
  */
-export async function executeRun(outcome: Outcome, options: RunOptions, deps: RunDeps, io: Io): Promise<number> {
+export async function executeRun(
+	outcome: Outcome,
+	options: RunOptions,
+	deps: RunDeps,
+	io: Io,
+	palettes: Palettes = plainPalettes,
+): Promise<number> {
 	const result = await runToGate(outcome, deps, { maxAttempts: options.maxAttempts });
 
 	// Machine-readable mode: a single JSON object on stdout, regardless of verdict,
@@ -68,10 +75,10 @@ export async function executeRun(outcome: Outcome, options: RunOptions, deps: Ru
 
 	const attempts = `${result.attempts} attempt${result.attempts === 1 ? "" : "s"}`;
 	if (result.passed) {
-		io.out(`+ ${outcome.id}: passed in ${attempts}`);
+		io.out(palettes.out.green(`+ ${outcome.id}: passed in ${attempts}`));
 		return 0;
 	}
-	io.err(`x ${outcome.id}: failed after ${attempts}`);
+	io.err(palettes.err.red(`x ${outcome.id}: failed after ${attempts}`));
 	if (result.errors && !options.quiet) io.err(result.errors);
 	return 1;
 }
@@ -80,19 +87,20 @@ export async function executeRun(outcome: Outcome, options: RunOptions, deps: Ru
  * Render a live agent activity event as concise ASCII for `-v` output. Indented
  * to nest under the run header. `>` running, `+` ok, `x` error, `~` reasoning.
  * Reasoning blocks span multiple lines; each line is prefixed so the trace reads
- * as a distinct, dim-by-convention block rather than as actions.
+ * as a distinct, dim block rather than as actions. The {@link Palette} adds
+ * color on a TTY and is a no-op when piped, so plain output is unchanged.
  */
-export function renderActivity(event: AgentActivity): string {
+export function renderActivity(event: AgentActivity, palette: Palette = plainPalette): string {
 	switch (event.kind) {
 		case "tool-start":
 			return event.summary ? `  > ${event.tool}: ${event.summary}` : `  > ${event.tool}`;
 		case "tool-end":
-			return `  ${event.ok ? "+" : "x"} ${event.tool}`;
+			return event.ok ? `  ${palette.green("+")} ${event.tool}` : `  ${palette.red("x")} ${event.tool}`;
 		case "reasoning":
 			return event.text
 				.trim()
 				.split("\n")
-				.map((line) => `  ~ ${line}`)
+				.map((line) => palette.dim(`  ~ ${line}`))
 				.join("\n");
 	}
 }
