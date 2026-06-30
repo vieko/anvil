@@ -288,6 +288,19 @@ Decisions are driven by usage data, not speculation. These are intentionally
   `high` at the `runToGate` boundary (`DEFAULT_EFFORT`) so attempt 0 always
   reasons at a known level. `--effort low` opts into the gentle ladder
   (`low → high → opus/high → …`); `--effort max` pins the ceiling.
+- **Output styling (Pi-harness parity / TTY color).** Considered matching how
+  the Pi harness styles agent activity. Rejected the port: Pi's rich look is its
+  **interactive TUI** (`@earendil-works/pi-tui` components + themed background
+  boxes, redraw-based), which Pi itself **turns off** in non-interactive (print)
+  mode — exactly anvil's regime. Anvil's stream is append-only ASCII to stderr
+  and is routinely piped / `tee`'d / `tmux capture-pane`'d (read by machines and
+  scrollback), where a redraw TUI corrupts output and the dependency violates
+  the `pi-agent-core` + `pi-ai`-only substrate rule. The glyph vocabulary (`>`
+  running, `+` ok, `x` fail, `~` thinking) deliberately reads like a
+  gate/test-runner, not a chat agent — the right identity signal. The only piece
+  worth revisiting is a small **TTY-gated ANSI layer** behind `renderActivity`
+  (dim reasoning, green `+`, red `x`; byte-for-byte plain when piped); reopen
+  when skimming a live `-v` run is actually hard, not before.
 - **Use-driven ergonomics (named, not built).** Two gaps usage will likely
   surface first: linked worktrees **accumulate** in `<repo>-anvil/` (one per run,
   never cleaned) → a `prune` may earn itself; and there is no helper to **merge** a
