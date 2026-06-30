@@ -1,5 +1,7 @@
 # @vieko/anvil
 
+<p align="center"><img src="https://raw.githubusercontent.com/vieko/anvil/main/say-no-hero.gif" alt="anvil" width="100%" /></p>
+
 anvil's first-class CLI: **define an outcome, the agent works, a deterministic
 gate decides done.** A thin surface over the `@anvil/core` engine — anvil is
 forge's focused successor, and this is its entry point.
