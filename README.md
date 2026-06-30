@@ -63,9 +63,10 @@ Key options (`anvil --help` for the rest):
 | `--contract <file>` | Seed a check (typically a failing test) into the worktree and **freeze** it: the agent must satisfy it, never edit it. The strongest gate. |
 | `--scope <glob>` | Fence the agent into these paths; a change outside **voids the run**. |
 | `--model <alias\|provider:id>` | Base model: `haiku` / `sonnet` / `opus`, or a concrete `provider:model-id`. Default `sonnet`. |
+| `--effort <level>` | Base reasoning effort: `low` / `medium` / `high` / `xhigh` / `max`. Default `high`. |
 | `-n, --max-attempts <n>` | Attempt cap before giving up (default `3`). |
 | `-v, --verbose` | Stream the agent's tool calls + gate progress to stderr. |
-| `--reasoning` | Also stream the agent's reasoning trace (implies `-v`). Display-only; shows thinking when the model emits it. |
+| `--reasoning` | Also stream the agent's reasoning trace (implies `-v`). Display-only — shows the thinking the model emits; use `--effort` to set its level. |
 | `--json` | Emit a machine-readable result; human chrome and `-v` move to stderr. |
 
 ## How it works
@@ -115,7 +116,8 @@ instead of re-reading the diff:
   "id": "parser-tests",
   "passed": true,
   "attempts": 2,
-  "finalModel": "sonnet",
+  "finalModel": "opus",
+  "finalEffort": "high",
   "branch": "anvil/parser-tests/lz4k9",
   "gate": { "commands": ["tsc --noEmit", "npm test"], "source": "explicit" },
   "contract": true,  // a contract was enforced (and, since a violation voids the run, held)

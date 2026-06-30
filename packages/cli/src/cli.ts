@@ -25,7 +25,7 @@ export interface RunOptions {
 	verbose: boolean;
 	/**
 	 * Also stream the agent's reasoning trace to stderr. Display-only and implies
-	 * `--verbose`; the reserved `--effort` is the (future) reasoning-level setter.
+	 * `--verbose`; `--effort` is the matching reasoning-*level* setter (show vs. set).
 	 */
 	reasoning: boolean;
 	/** Emit a machine-readable JSON result to stdout (human chrome + `-v` go to stderr). */

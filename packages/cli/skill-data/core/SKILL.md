@@ -36,6 +36,9 @@ anvil run "<outcome>" -C <repo> [--verify "<cmd>"]...
   can't fully pin down what done means.
 - `--model <alias|provider:id>` — base model: `haiku` / `sonnet` / `opus`, or a
   concrete `provider:model-id`. Default `sonnet`.
+- `--effort <level>` — base reasoning effort: `low` / `medium` / `high` /
+  `xhigh` / `max`. Default `high`. Pairs with `--model` to set the base of the
+  escalation ladder.
 - `-n, --max-attempts <n>` — attempt cap before giving up (default `3`).
 - `--link <glob>` — link file(s) into the worktree before the run (symlink, copy
   fallback; e.g. `"**/.env.local"`); off by default. Use it when a gate needs

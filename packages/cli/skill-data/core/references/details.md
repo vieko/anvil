@@ -68,13 +68,15 @@ does not simply loop until the cap:
 - a **strong base** (opus) climbs effort only — no model switch.
 
 With the default cap of 3 attempts, a weak base reaches opus by the final one.
-Set the base with `--model`; the climb is automatic.
+Set the base with `--model` and `--effort`; the climb is automatic. The default
+base is `sonnet` at `high` effort, so the default ladder is
+`sonnet@high -> opus@high -> opus@xhigh`.
 
 ## Model aliases
 
 `haiku` / `sonnet` / `opus` resolve to current Anthropic models through the
 Vercel AI Gateway (one key, `AI_GATEWAY_API_KEY`). Or pass a concrete
-`provider:model-id`. The default base is `sonnet`.
+`provider:model-id`. The default model is `sonnet` (at `high` effort).
 
 ## Worktree prep: deps, linked files, contracts, scope
 
