@@ -1,5 +1,7 @@
 # Anvil
 
+<p align="center"><img src="say-no-hero.gif" alt="Anvil" width="100%" /></p>
+
 **Outcome-driven, command-verified agent execution. Check what you can't trust.**
 
 Give Anvil an outcome, and it runs an agent in an isolated git worktree, looping
@@ -143,6 +145,10 @@ npm test          # vitest only
 live behind `@anvil/core/node`. Those seams (`Agent`, `Workspace`, `Gate`,
 `StatePersister`) are injected interfaces, so tests drive the loop with fakes,
 no real model, git, or filesystem needed.
+
+## Credits
+
+Animation by [Jon Romero Ruiz](https://x.com/jonroru).
 
 ## License
 
