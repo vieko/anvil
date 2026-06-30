@@ -43,6 +43,18 @@ This is what lets the workflow publish without a stored token or a 2FA prompt.
 The workflow does the rest: gate → `npm publish` (OIDC) → GitHub release with
 generated notes.
 
+## Installing a fresh release locally
+
+This machine's npm sets `min-release-age=2` (a rolling supply-chain cooldown), so
+a just-published version is uninstallable for ~2 days. To grab your own release
+immediately, bypass the cooldown for that one trusted install:
+
+```bash
+npm i -g @vieko/anvil@X.Y.Z --min-release-age=0
+```
+
+(Plain `npm i -g @vieko/anvil` works once the version clears the window.)
+
 ## Manual fallback
 
 If trusted publishing is unavailable (OIDC misconfigured, registry down):
