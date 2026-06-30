@@ -55,6 +55,22 @@ pi is an upstream dependency — read it, pin it, vendor it if it breaks you; do
   gate is a blocker. Run it before committing.
 - ASCII-only output in code; no emojis.
 
+## Running anvil during development
+
+Three modes; pick the right one:
+
+- **Developing anvil itself** — `npm run dev -- run ...`. Executes the working
+  tree directly via Node's type-stripping and the `source` export condition. No
+  build step, no stale dist. This is also how to drive a Golem when dogfooding
+  anvil on anvil.
+- **Using anvil as a tool on another repo** — install the published package
+  globally: `npm i -g @vieko/anvil`. Kept current by the release pipeline.
+- **Occasional or CI use** — `npx @vieko/anvil`. No install required.
+
+`npm link` is discouraged for active development: the linked bin runs `dist/`
+and is stale until `npm run build`. Mental model: the published `anvil` is the
+product; `npm run dev` is the workbench.
+
 ## Git
 
 - Stage explicit paths. Never `git add -A` / `git add .`.
