@@ -38,6 +38,17 @@ runtime `dependencies`) and is itself `private` — it is never published.
    npm publish --workspace @vieko/anvil
    ```
 
+   With 2FA on the account this prompts for a one-time password: pass
+   `--otp=<code>` or complete the printed web-auth URL.
+
+5. **Tag and cut the GitHub release** (after npm, so the two stay in sync) so
+   the repo's Releases page tracks every published version:
+
+   ```bash
+   git tag -a vX.Y.Z <release-commit> -m vX.Y.Z && git push origin vX.Y.Z
+   gh release create vX.Y.Z --verify-tag --title vX.Y.Z --latest --notes "..."
+   ```
+
 ## Guard
 
 `npm publish` is a **confirmed-only** operation: never run it without an explicit
