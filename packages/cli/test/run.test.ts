@@ -110,6 +110,7 @@ describe("executeRun", () => {
 			passed: true,
 			attempts: 1,
 			finalModel: "sonnet",
+			finalEffort: "high",
 			branch: "anvil/feat/abc",
 			gate: { commands: [], source: "autodetect" },
 			contract: false,
@@ -191,6 +192,13 @@ describe("resolveOutcome", () => {
 		expect(o.prompt).toBe("Refactor the parser!");
 		expect(o.id).toBe("refactor-the-parser");
 		expect(o.base).toEqual({ model: "opus" });
+	});
+
+	it("threads --effort onto the base, defaulting the model to sonnet when --effort is given alone", async () => {
+		const standalone = await resolveOutcome("do the thing now", opts({ effort: "max" }));
+		expect(standalone.base).toEqual({ model: "sonnet", effort: "max" });
+		const withModel = await resolveOutcome("do the thing now", opts({ model: "opus", effort: "low" }));
+		expect(withModel.base).toEqual({ model: "opus", effort: "low" });
 	});
 
 	it("reads a readable path as a spec (id = file stem, prompt = contents)", async () => {

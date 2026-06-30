@@ -72,9 +72,10 @@ describe("parse", () => {
 		});
 	});
 
-	it("parses --reasoning (display-only; --effort stays unknown/reserved)", () => {
+	it("parses --reasoning (display-only) and --effort (level setter)", () => {
 		expect(parse(["run", "x", "--reasoning"])).toMatchObject({ kind: "run", options: { reasoning: true } });
-		expect(parse(["run", "x", "--effort", "high"])).toMatchObject({ kind: "error" });
+		expect(parse(["run", "x", "--effort", "high"])).toMatchObject({ kind: "run", options: { effort: "high" } });
+		expect(parse(["run", "x", "--effort", "bogus"])).toMatchObject({ kind: "error" });
 	});
 
 	it("parses --json for run and status", () => {

@@ -10,6 +10,7 @@ import { escalate as defaultEscalate } from "./escalation.ts";
 import type {
 	Agent,
 	AgentResult,
+	Effort,
 	Escalator,
 	Gate,
 	ModelEffort,
@@ -60,6 +61,13 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE: ModelEffort = { model: "sonnet", effort: "high" };
 
 /**
+ * The effort level applied to a base that has a model but no explicit effort.
+ * Normalised at the runToGate boundary so `--model opus` (no `--effort`) always
+ * dispatches at high on attempt 0 — no more thinking-off-by-accident.
+ */
+export const DEFAULT_EFFORT: Effort = "high";
+
+/**
  * Run one outcome to the gate.
  *
  * Reliability properties (all enforced by this function's shape):
@@ -87,7 +95,10 @@ export async function runToGate(
 	const { agent, workspace, gate, persist } = deps;
 	const escalate = deps.escalate ?? defaultEscalate;
 	const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-	const base: ModelEffort = outcome.base ?? DEFAULT_BASE;
+	const rawBase: ModelEffort = outcome.base ?? DEFAULT_BASE;
+	// Normalise: a base with a model but no effort gets DEFAULT_EFFORT so attempt 0
+	// always reasons at a known level instead of dispatching thinking-off.
+	const base: ModelEffort = rawBase.effort === undefined ? { ...rawBase, effort: DEFAULT_EFFORT } : rawBase;
 
 	let prompt = outcome.prompt;
 	let lastErrors: string | undefined;

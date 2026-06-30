@@ -275,17 +275,19 @@ Decisions are driven by usage data, not speculation. These are intentionally
   latest record per outcome; an append-log (JSONL) variant would give the full
   timeline. Pure observability polish, zero correctness impact. Reopen when a TUI
   or a concrete debugging session makes the timeline pull its weight.
-- **Reasoning display (`-v` vs `--reasoning`) and reserved `--effort`.** `-v`
-  streams the agent's *actions* (tool calls) + gate progress; `--reasoning` adds
-  the model's *thinking trace* and implies `-v`. It is a named flag, not `-vv`,
-  because the ladder is only two levels and intent reads clearer; `-vv` stacking
-  is reserved for a future 3+ level ladder. `--reasoning` is **display-only**: it
-  surfaces whatever thinking the model emits, which is effort-dependent (the
-  default base is `sonnet/high`, so attempt 0 already reasons at high effort;
-  escalation rungs climb further). To keep that boundary clean, **`--effort` is
-  reserved for the (unbuilt) reasoning-*level* setter** — `--reasoning` shows
-  the trace, `--effort` would turn it up. Build `--effort` on a concrete need
-  to drive thinking depth from the CLI.
+- **Reasoning display and effort control (`-v` / `--reasoning` / `--effort`).**
+  `-v` streams the agent's *actions* (tool calls) + gate progress; `--reasoning`
+  adds the model's *thinking trace* and implies `-v`. It is a named flag, not
+  `-vv`, because the ladder is only two levels and intent reads clearer; `-vv`
+  stacking is reserved for a future 3+ level ladder. `--reasoning` is
+  **display-only**: it surfaces whatever thinking the model emits, which is
+  effort-dependent. `--effort <low|medium|high|xhigh|max>` is the
+  **reasoning-level setter** — `--reasoning` shows the trace, `--effort` sets
+  its depth. The default base is `sonnet/high` (no flag needed for the common
+  case); when `--model` is supplied without `--effort` the engine normalises to
+  `high` at the `runToGate` boundary (`DEFAULT_EFFORT`) so attempt 0 always
+  reasons at a known level. `--effort low` opts into the gentle ladder
+  (`low → high → opus/high → …`); `--effort max` pins the ceiling.
 - **Use-driven ergonomics (named, not built).** Two gaps usage will likely
   surface first: linked worktrees **accumulate** in `<repo>-anvil/` (one per run,
   never cleaned) → a `prune` may earn itself; and there is no helper to **merge** a
