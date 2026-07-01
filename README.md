@@ -139,6 +139,21 @@ to one harness; [Claude Code](https://www.anthropic.com/claude-code), Codex, and
 the rest all work. `anvil skills get core` prints a guide an agent reads to learn
 the conventions.
 
+One stream can't serve a human and an agent at once, so don't `... -v 2>&1 | tee`
+(the pipe drops the TTY, output goes plain, and ANSI would pollute the log
+anyway). Separate the channels instead — `--json` puts the clean result on
+stdout and moves the colored `-v` stream + header to stderr:
+
+```bash
+# agent reads the JSON file; the human watches a colored -v stream in the pane
+anvil run spec.md --verify "npm test" -v --json > result.json
+echo "exit=$?"   # result.json also carries { "passed": ... }
+```
+
+If you genuinely need color through a pipe (a CI log, `less -R`, or a terminal
+that misreports `isTTY`), set `FORCE_COLOR=1`; `FORCE_COLOR=0` or `NO_COLOR`
+force plain (`NO_COLOR` always wins).
+
 Built on [Pi](https://pi.dev).
 
 ## Develop

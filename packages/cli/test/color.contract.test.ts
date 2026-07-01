@@ -7,7 +7,7 @@ import { renderActivity } from "../src/run.ts";
 // palette. The plain palette must reproduce byte-for-byte the output anvil emits
 // today (pipe/log/capture-pane safety is the invariant); the ansi palette wraps
 // the same glyphs and text in escapes. paletteFor honors the destination's TTY
-// status and the NO_COLOR convention.
+// status, the NO_COLOR convention, and the FORCE_COLOR escape hatch.
 
 const ESC = "\u001b[";
 const toolEnd = (ok: boolean): AgentActivity => ({ kind: "tool-end", tool: "edit", ok });
@@ -59,5 +59,20 @@ describe("color (frozen contract)", () => {
 
 	it("paletteFor honors NO_COLOR even on a TTY", () => {
 		expect(paletteFor({ isTTY: true }, { NO_COLOR: "1" })).toBe(plainPalette);
+	});
+
+	it("paletteFor: FORCE_COLOR forces ansi on a non-TTY (lying probe / CI / tee)", () => {
+		expect(paletteFor({ isTTY: false }, { FORCE_COLOR: "1" })).toBe(ansiPalette);
+		expect(paletteFor({}, { FORCE_COLOR: "3" })).toBe(ansiPalette);
+	});
+
+	it("paletteFor: FORCE_COLOR=0 (or empty) is an explicit off, even on a TTY", () => {
+		expect(paletteFor({ isTTY: true }, { FORCE_COLOR: "0" })).toBe(plainPalette);
+		expect(paletteFor({ isTTY: true }, { FORCE_COLOR: "" })).toBe(plainPalette);
+	});
+
+	it("paletteFor: NO_COLOR wins when both NO_COLOR and FORCE_COLOR are set", () => {
+		expect(paletteFor({ isTTY: true }, { NO_COLOR: "1", FORCE_COLOR: "1" })).toBe(plainPalette);
+		expect(paletteFor({ isTTY: false }, { NO_COLOR: "1", FORCE_COLOR: "1" })).toBe(plainPalette);
 	});
 });

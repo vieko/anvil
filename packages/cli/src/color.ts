@@ -38,12 +38,23 @@ export const ansiPalette: Palette = {
 };
 
 /**
- * Pick a palette for a stream: ansi only when the stream is a TTY and the
- * `NO_COLOR` convention (https://no-color.org) is not set; plain otherwise. The
- * env is injected so the decision is pure and testable.
+ * Pick a palette for a stream. Precedence, strongest to weakest:
+ *
+ *   1. `NO_COLOR` (https://no-color.org) -- the off switch always wins, so a
+ *      caller can force plain output regardless of anything else.
+ *   2. `FORCE_COLOR` -- the escape hatch for environments whose TTY probe lies
+ *      (CI logs, `less -R`, a tmux pane reporting isTTY=false). Follows the
+ *      supports-color convention: "0" (or empty) is off, any other value is on.
+ *   3. The stream's own `isTTY` -- ansi on a real terminal, plain when piped,
+ *      tee'd, or capture-pane'd.
+ *
+ * The env is injected so the decision is pure and testable.
  */
 export function paletteFor(stream: { isTTY?: boolean }, env: Record<string, string | undefined>): Palette {
 	if (env.NO_COLOR) return plainPalette;
+	if (env.FORCE_COLOR !== undefined) {
+		return env.FORCE_COLOR === "" || env.FORCE_COLOR === "0" ? plainPalette : ansiPalette;
+	}
 	return stream.isTTY ? ansiPalette : plainPalette;
 }
 

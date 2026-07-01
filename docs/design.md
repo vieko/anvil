@@ -302,8 +302,15 @@ Decisions are driven by usage data, not speculation. These are intentionally
   injected `Palette` adds dim reasoning, green `+`, red `x`, a bold header, and a
   green/red verdict on a terminal, gated per destination stream so piped /
   `tee`'d / `capture-pane`'d output (or a redirected stdout alone) stays
-  byte-for-byte plain. `NO_COLOR` is honored. The TUI port stays rejected for
-  the reasons above.
+  byte-for-byte plain. Both halves of the color contract are honored: `NO_COLOR`
+  (https://no-color.org) is the always-wins off switch, and `FORCE_COLOR` is the
+  escape hatch that paints color through a pipe when the TTY probe lies (CI logs,
+  `less -R`, a tmux pane reporting `isTTY=false`) -- following the supports-color
+  convention (`0`/empty is off). The intended harness pattern, though, is
+  channel separation, not `FORCE_COLOR`: run `--json` so the clean result goes to
+  stdout (redirect it to a file for the agent) while the colored `-v` stream and
+  header ride stderr to the human's TTY -- no `FORCE_COLOR`, no ANSI in the
+  machine channel. The TUI port stays rejected for the reasons above.
 - **Use-driven ergonomics (named, not built).** Two gaps usage will likely
   surface first: linked worktrees **accumulate** in `<repo>-anvil/` (one per run,
   never cleaned) → a `prune` may earn itself; and there is no helper to **merge** a
