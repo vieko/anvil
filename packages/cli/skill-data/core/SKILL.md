@@ -89,6 +89,12 @@ ways:
 1. **Auto-detection** (omit `--verify`): anvil reads `package.json` + the
    lockfile and runs the detected typecheck/build/test commands. Use this in a
    normal Node/TS repo.
+TS repos, one trap: test runners typically transpile without typechecking
+(vitest/jest via esbuild or swc) and framework builds often exclude test
+files -- so a test+build gate can go green over test-file type errors.
+Include an explicit typecheck (`tsc --noEmit`) in hand-rolled gates unless
+the repo's own scripts already carry one for auto-detection to find.
+
 2. **Explicit `--verify`** (recommended when you know the check): pass the exact
    command(s) — a precise signal of what "done" means.
 3. **Frozen contract `--contract <file>`** (the strongest gate): seed a failing test
