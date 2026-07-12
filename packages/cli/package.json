@@ -50,8 +50,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.78.1",
-    "@earendil-works/pi-ai": "0.78.1",
+    "@earendil-works/pi-agent-core": "0.80.6",
+    "@earendil-works/pi-ai": "0.80.6",
     "typebox": "1.1.38"
   },
   "engines": {

@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai";
+import type { Model, MutableModels } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StatePersister } from "../src/index.ts";
 import { CommandGate, PiAgent, runToGate, WorktreeWorkspace } from "../src/node/index.ts";
@@ -15,8 +15,9 @@ import { CommandGate, PiAgent, runToGate, WorktreeWorkspace } from "../src/node/
 
 let tmpRoot: string;
 let repoRoot: string;
-let faux: ReturnType<typeof registerFauxProvider>;
+let faux: ReturnType<typeof fauxProvider>;
 let model: Model<string>;
+let models: MutableModels;
 
 const noopPersist: StatePersister = { async save() {} };
 
@@ -34,12 +35,13 @@ beforeEach(async () => {
 	await writeFile(join(repoRoot, "README.md"), "seed\n");
 	git(["add", "README.md"]);
 	git(["commit", "-m", "init"]);
-	faux = registerFauxProvider({ models: [{ id: "faux", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] });
+	faux = fauxProvider({ models: [{ id: "faux", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] });
 	model = faux.getModel();
+	models = createModels();
+	models.setProvider(faux.provider);
 });
 
 afterEach(async () => {
-	faux.unregister();
 	await rm(tmpRoot, { recursive: true, force: true });
 });
 
@@ -49,7 +51,7 @@ async function setup(branch: string) {
 		env: ws.env,
 		resolveModel: () => model,
 		systemPrompt: "test",
-		getApiKeyAndHeaders: async () => ({ apiKey: "faux" }),
+		models,
 	});
 	// The gate is satisfied only when answer.txt contains exactly "42".
 	const gate = new CommandGate({ commands: [{ cmd: 'test "$(cat answer.txt 2>/dev/null)" = "42"' }] });

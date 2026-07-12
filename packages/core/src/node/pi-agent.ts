@@ -1,7 +1,7 @@
 import type { AgentHarnessEvent, AgentTool, ExecutionEnv, Session, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AgentHarness, InMemorySessionRepo, JsonlSessionRepo } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
-import { getEnvApiKey } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type {
 	Agent,
 	AgentActivity,
@@ -17,10 +17,6 @@ import { defaultTools } from "./tools.ts";
 /** Resolve anvil's (model, effort) to a concrete pi-ai Model. The provider-agnostic seam. */
 export type ModelResolver = (config: ModelEffort) => Model<any>;
 
-export type ApiKeyResolver = (
-	model: Model<any>,
-) => Promise<{ apiKey: string; headers?: Record<string, string> } | undefined>;
-
 export interface PiAgentOptions {
 	/** Execution environment the agent operates in (e.g. `WorktreeWorkspace.env`). */
 	env: ExecutionEnv;
@@ -30,8 +26,13 @@ export interface PiAgentOptions {
 	tools?: AgentTool[];
 	/** System prompt. Default: a minimal outcome-focused prompt. */
 	systemPrompt?: string;
-	/** Provide the API key/headers for a model. Default: read from env by provider. */
-	getApiKeyAndHeaders?: ApiKeyResolver;
+	/**
+	 * Provider collection used for all model requests; auth (API keys/headers)
+	 * resolves through each provider's own auth. Default: {@link builtinModels}(),
+	 * every built-in pi-ai provider with env-based auth (covers the Vercel AI
+	 * Gateway's `AI_GATEWAY_API_KEY` and Anthropic's OAuth-token precedence).
+	 */
+	models?: Models;
 	/**
 	 * Persist each run's transcript as JSONL under this (absolute) root, using
 	 * `env` as the filesystem. Omit for an in-memory session discarded on exit.
@@ -62,6 +63,7 @@ const DEFAULT_SYSTEM_PROMPT =
 export class PiAgent implements Agent {
 	private readonly options: PiAgentOptions;
 	private readonly resolveModel: ModelResolver;
+	private readonly models: Models;
 	private readonly createSession: () => Promise<Session>;
 	/** Sessions created by this agent, so a `resume` continues the same transcript. */
 	private readonly sessions = new Map<string, Session>();
@@ -69,6 +71,7 @@ export class PiAgent implements Agent {
 	constructor(options: PiAgentOptions) {
 		this.options = options;
 		this.resolveModel = options.resolveModel ?? createModelResolver();
+		this.models = options.models ?? builtinModels();
 		if (options.sessionsRoot) {
 			const repo = new JsonlSessionRepo({ fs: options.env, sessionsRoot: options.sessionsRoot });
 			const cwd = options.sessionCwd ?? ".";
@@ -88,10 +91,10 @@ export class PiAgent implements Agent {
 		const harness = new AgentHarness({
 			env: this.options.env,
 			session,
+			models: this.models,
 			model,
 			tools: this.options.tools ?? defaultTools(this.options.env),
 			systemPrompt: this.options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-			getApiKeyAndHeaders: this.options.getApiKeyAndHeaders ?? defaultGetApiKey,
 			thinkingLevel: (this.options.thinkingLevel ?? defaultThinkingLevel)(d.config.effort),
 		});
 
@@ -190,13 +193,3 @@ function defaultThinkingLevel(effort: Effort | undefined): ThinkingLevel | undef
 			return effort;
 	}
 }
-
-/**
- * Read the provider's API key from the environment, delegating to pi-ai's own
- * provider->env mapping (covers every provider pi knows, including the Vercel
- * AI Gateway's `AI_GATEWAY_API_KEY` and Anthropic's OAuth-token precedence).
- */
-const defaultGetApiKey: ApiKeyResolver = async (model) => {
-	const apiKey = getEnvApiKey(model.provider);
-	return apiKey ? { apiKey } : undefined;
-};

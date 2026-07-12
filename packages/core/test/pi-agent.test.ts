@@ -2,13 +2,14 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model, MutableModels } from "@earendil-works/pi-ai";
 import {
+	createModels,
 	fauxAssistantMessage,
+	fauxProvider,
 	fauxText,
 	fauxThinking,
 	fauxToolCall,
-	registerFauxProvider,
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentActivity, ModelEffort } from "../src/index.ts";
@@ -18,27 +19,29 @@ import { PiAgent } from "../src/node/pi-agent.ts";
 // API key, no tools. Exercises the Agent seam: text/usage/sessionId extraction,
 // provider-agnostic model resolution, and resume reusing a session.
 
-let faux: ReturnType<typeof registerFauxProvider>;
+let faux: ReturnType<typeof fauxProvider>;
 let model: Model<string>;
+let models: MutableModels;
 let env: NodeExecutionEnv;
 
 beforeEach(() => {
-	faux = registerFauxProvider({
+	faux = fauxProvider({
 		models: [{ id: "faux-cheap", cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 } }],
 	});
 	model = faux.getModel();
+	models = createModels();
+	models.setProvider(faux.provider);
 	env = new NodeExecutionEnv({ cwd: tmpdir() });
 });
 
 afterEach(async () => {
-	faux.unregister();
 	await env.cleanup();
 });
 
 describe("PiAgent.dispatch", () => {
 	it("runs one turn and returns text + usage + a session id", async () => {
 		faux.setResponses([fauxAssistantMessage("the outcome is done")]);
-		const agent = new PiAgent({ env, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
 
 		const res = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
 
@@ -52,6 +55,7 @@ describe("PiAgent.dispatch", () => {
 		const seen: ModelEffort[] = [];
 		const agent = new PiAgent({
 			env,
+			models,
 			systemPrompt: "test",
 			resolveModel: (config) => {
 				seen.push(config);
@@ -70,7 +74,7 @@ describe("PiAgent.dispatch", () => {
 
 	it("reuses the same session when resume is the prior session id", async () => {
 		faux.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
-		const agent = new PiAgent({ env, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
 
 		const first = await agent.dispatch({ prompt: "p1", config: { model: "m" } });
 		const second = await agent.dispatch({ prompt: "p2", config: { model: "m" }, resume: first.sessionId });
@@ -80,7 +84,7 @@ describe("PiAgent.dispatch", () => {
 
 	it("starts a fresh session when not resuming", async () => {
 		faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
-		const agent = new PiAgent({ env, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
 
 		const first = await agent.dispatch({ prompt: "p1", config: { model: "m" } });
 		const second = await agent.dispatch({ prompt: "p2", config: { model: "m" } });
@@ -97,6 +101,7 @@ describe("PiAgent.dispatch", () => {
 		const activity: AgentActivity[] = [];
 		const agent = new PiAgent({
 			env,
+			models,
 			resolveModel: () => model,
 			systemPrompt: "test",
 			onActivity: (event) => activity.push(event),
@@ -122,6 +127,7 @@ describe("PiAgent.dispatch", () => {
 		const activity: AgentActivity[] = [];
 		const agent = new PiAgent({
 			env,
+			models,
 			resolveModel: () => reasoning,
 			systemPrompt: "test",
 			onActivity: (event) => activity.push(event),

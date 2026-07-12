@@ -1,12 +1,14 @@
 import type { Model } from "@earendil-works/pi-ai";
-import { getModel, getModels, getProviders } from "@earendil-works/pi-ai";
+import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ModelResolver } from "./pi-agent.ts";
 
-// Loosely-typed views of pi-ai's registry. The exported getModel/getModels are
-// generically typed against literal provider/id keys; anvil resolves dynamic
-// strings, so we look up against the runtime registry directly.
-const lookupModel = getModel as unknown as (provider: string, modelId: string) => Model<any> | undefined;
-const lookupModels = getModels as unknown as (provider: string) => Model<any>[];
+// Loosely-typed views of pi-ai's built-in catalog. The exported
+// getBuiltinModel/getBuiltinModels are generically typed against literal
+// provider/id keys; anvil resolves dynamic strings, so we look up against the
+// runtime catalog directly.
+const lookupModel = getBuiltinModel as unknown as (provider: string, modelId: string) => Model<any> | undefined;
+const lookupModels = getBuiltinModels as unknown as (provider: string) => Model<any>[];
+const lookupProviders = getBuiltinProviders as unknown as () => string[];
 
 export interface ModelResolverOptions {
 	/** Logical name -> a "provider:model-id" string or a concrete pi-ai Model. */
@@ -28,7 +30,7 @@ export interface ModelResolverOptions {
  */
 export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	haiku: "vercel-ai-gateway:anthropic/claude-haiku-4.5",
-	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-4.6",
+	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-5",
 	opus: "vercel-ai-gateway:anthropic/claude-opus-4.8",
 };
 
@@ -81,7 +83,7 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 }
 
 function findById(id: string): Model<any> | undefined {
-	for (const provider of getProviders()) {
+	for (const provider of lookupProviders()) {
 		const model = lookupModels(provider).find((m) => m.id === id);
 		if (model) return model;
 	}

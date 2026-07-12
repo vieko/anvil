@@ -9,8 +9,12 @@ describe("createModelResolver", () => {
 		const opus = resolve({ model: "opus" });
 		expect(opus.provider).toBe("vercel-ai-gateway");
 		expect(opus.id).toBe("anthropic/claude-opus-4.8");
-		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-4.6");
+		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
+	});
+
+	it("resolves the sonnet alias to anthropic/claude-sonnet-5", () => {
+		expect(createModelResolver()({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 	});
 
 	it("resolves an explicit provider:model-id (direct Anthropic, bypassing the gateway)", () => {
