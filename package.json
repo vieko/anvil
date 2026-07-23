@@ -37,5 +37,6 @@
   },
   "engines": {
     "node": ">=22.19.0"
-  }
+  },
+  "packageManager": "npm@11.16.0"
 }
