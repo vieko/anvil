@@ -2,7 +2,7 @@
   "name": "anvil-monorepo",
   "private": true,
   "type": "module",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Anvil — the most reliable implementation of: define outcome -> agent works -> deterministic gate -> loop.",
   "license": "MIT",
   "author": "vieko",
