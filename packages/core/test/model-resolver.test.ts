@@ -11,6 +11,7 @@ describe("createModelResolver", () => {
 		expect(opus.id).toBe("anthropic/claude-opus-4.8");
 		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
+		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-5.6-luna");
 	});
 
 	it("resolves the sonnet alias to anthropic/claude-sonnet-5", () => {

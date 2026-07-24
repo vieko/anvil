@@ -24,7 +24,7 @@ export const EFFORT_LADDER: readonly Effort[] = ["low", "medium", "high", "xhigh
 export const DEFAULT_STRONG_MODEL = "opus";
 
 /** Default weak-tier matcher: cheaper/smaller models that should escalate. */
-export const DEFAULT_WEAK_TIER = /sonnet|haiku|mini|flash|small|lite|nano/i;
+export const DEFAULT_WEAK_TIER = /sonnet|haiku|mini|flash|small|lite|nano|luna|terra|glm/i;
 
 /** Index of `effort` in the ladder. Undefined/unknown normalizes to `high` (the common SDK default). */
 function effortIndex(effort: Effort | undefined): number {

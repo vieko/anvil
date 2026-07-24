@@ -35,6 +35,15 @@ describe("buildEscalationLadder", () => {
 		]);
 	});
 
+	it("treats budget-tier models (luna/terra/glm) as weak: luna@high -> opus@high", () => {
+		expect(buildEscalationLadder({ model: "luna", effort: "high" })).toEqual([
+			{ model: "luna", effort: "high" },
+			{ model: "opus", effort: "high" },
+			{ model: "opus", effort: "xhigh" },
+			{ model: "opus", effort: "max" },
+		]);
+	});
+
 	it("climbs effort only for a strong base (opus@low, no model switch)", () => {
 		expect(buildEscalationLadder({ model: "opus", effort: "low" })).toEqual([
 			{ model: "opus", effort: "low" },
