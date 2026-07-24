@@ -31,9 +31,29 @@ export interface ModelResolverOptions {
 export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	haiku: "vercel-ai-gateway:anthropic/claude-haiku-4.5",
 	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-5",
-	opus: "vercel-ai-gateway:anthropic/claude-opus-4.8",
+	opus: "vercel-ai-gateway:anthropic/claude-opus-5",
 	luna: "vercel-ai-gateway:openai/gpt-5.6-luna",
 };
+
+// Bridge entries for gateway models missing from pi-ai's builtin catalog:
+// "provider:model-id" -> a sibling builtin to derive metadata from, plus the
+// fields that differ. Ground truth for the derivation is the gateway's remote
+// catalog (claude-opus-5: 1M context, $5/$25 -- identical terms to 4.8).
+// Delete each entry once pi-ai's builtin catalog includes the model; models.dev
+// already lists them, so the next pi-ai release should. Tracked in #29/#33.
+const DERIVED_MODELS: Record<string, { from: [provider: string, id: string]; patch: Partial<Model<any>> }> = {
+	"vercel-ai-gateway:anthropic/claude-opus-5": {
+		from: ["vercel-ai-gateway", "anthropic/claude-opus-4.8"],
+		patch: { id: "anthropic/claude-opus-5", name: "Claude Opus 5" },
+	},
+};
+
+function lookupDerived(provider: string, id: string): Model<any> | undefined {
+	const entry = DERIVED_MODELS[`${provider}:${id}`];
+	if (!entry) return undefined;
+	const base = lookupModel(...entry.from);
+	return base ? { ...base, ...entry.patch } : undefined;
+}
 
 /**
  * Build a {@link ModelResolver}: map anvil's logical model strings (including the
@@ -71,12 +91,12 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 		const sep = spec.indexOf(":");
 		const provider = spec.slice(0, sep);
 		const id = spec.slice(sep + 1);
-		const model = lookupModel(provider, id);
+		const model = lookupModel(provider, id) ?? lookupDerived(provider, id);
 		if (model) return model;
 		throw new Error(`anvil: unknown model "${spec}". ${hint(name)}`);
 	}
 
-	const direct = lookupModel(defaultProvider, spec);
+	const direct = lookupModel(defaultProvider, spec) ?? lookupDerived(defaultProvider, spec);
 	if (direct) return direct;
 	const found = findById(spec);
 	if (found) return found;

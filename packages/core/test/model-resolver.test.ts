@@ -8,10 +8,23 @@ describe("createModelResolver", () => {
 		const resolve = createModelResolver();
 		const opus = resolve({ model: "opus" });
 		expect(opus.provider).toBe("vercel-ai-gateway");
-		expect(opus.id).toBe("anthropic/claude-opus-4.8");
+		expect(opus.id).toBe("anthropic/claude-opus-5");
 		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
 		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-5.6-luna");
+	});
+
+	it("bridges claude-opus-5 from opus-4.8's builtin metadata until pi-ai's catalog includes it", () => {
+		const resolve = createModelResolver();
+		const opus5 = resolve({ model: "vercel-ai-gateway:anthropic/claude-opus-5" });
+		const opus48 = resolve({ model: "vercel-ai-gateway:anthropic/claude-opus-4.8" });
+		expect(opus5.id).toBe("anthropic/claude-opus-5");
+		expect(opus5.name).toBe("Claude Opus 5");
+		// Everything but id/name is inherited from the 4.8 sibling (same gateway
+		// terms: 1M context, $5/$25 -- verified against the gateway remote catalog).
+		expect(opus5.cost).toEqual(opus48.cost);
+		expect(opus5.contextWindow).toBe(opus48.contextWindow);
+		expect(opus5.provider).toBe("vercel-ai-gateway");
 	});
 
 	it("resolves the sonnet alias to anthropic/claude-sonnet-5", () => {
@@ -42,7 +55,7 @@ describe("createModelResolver", () => {
 	it("supports custom aliases merged over the defaults", () => {
 		const resolve = createModelResolver({ aliases: { cheap: "anthropic:claude-haiku-4-5" } });
 		expect(resolve({ model: "cheap" }).id).toBe("claude-haiku-4-5");
-		expect(resolve({ model: "opus" }).id).toBe("anthropic/claude-opus-4.8"); // gateway defaults still present
+		expect(resolve({ model: "opus" }).id).toBe("anthropic/claude-opus-5"); // gateway defaults still present
 	});
 
 	it("accepts a concrete Model as an alias value", () => {
