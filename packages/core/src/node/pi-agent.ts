@@ -92,7 +92,7 @@ export class PiAgent implements Agent {
 			session,
 			models: this.models,
 			model,
-			tools: this.options.tools ?? defaultTools(this.options.env),
+			tools: this.options.tools ?? defaultTools(this.options.env, bashEnvFor(d)),
 			systemPrompt: this.options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
 			thinkingLevel: (this.options.thinkingLevel ?? defaultThinkingLevel)(d.config.effort),
 		});
@@ -179,6 +179,21 @@ function extractText(message: AssistantMessage): string {
 		.filter((block): block is Extract<typeof block, { type: "text" }> => block.type === "text")
 		.map((block) => block.text)
 		.join("");
+}
+
+/**
+ * Environment variables exposed to every command the agent runs via the bash
+ * tool for this dispatch: the recorded run id + current attempt number (the
+ * issue #32 invariant), plus the model/effort in progress for this attempt.
+ * `undefined` values (e.g. no `runId`/`attempt` supplied, or an unset effort)
+ * are omitted rather than stringified.
+ */
+function bashEnvFor(d: AgentDispatch): Record<string, string> {
+	const env: Record<string, string> = { ANVIL_MODEL: d.config.model };
+	if (d.runId !== undefined) env.ANVIL_RUN_ID = d.runId;
+	if (d.attempt !== undefined) env.ANVIL_ATTEMPT = String(d.attempt);
+	if (d.config.effort !== undefined) env.ANVIL_EFFORT = d.config.effort;
+	return env;
 }
 
 /** anvil Effort -> pi ThinkingLevel. `max` has no pi equivalent, so it maps to `xhigh`. */

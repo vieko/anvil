@@ -41,6 +41,18 @@ export interface AgentDispatch {
 	/** Resume a prior session so loop iterations continue the same conversation. */
 	resume?: string;
 	signal?: AbortSignal;
+	/**
+	 * The recorded run id (the outcome's {@link Outcome.id}, as persisted in
+	 * {@link RunRecord.outcomeId}). Node agent implementations expose this to
+	 * commands the agent executes (e.g. the bash tool) as `ANVIL_RUN_ID`.
+	 */
+	runId?: string;
+	/**
+	 * Current 1-based attempt number for this dispatch. Node agent
+	 * implementations expose this to commands the agent executes as
+	 * `ANVIL_ATTEMPT`.
+	 */
+	attempt?: number;
 }
 
 export interface AgentResult {

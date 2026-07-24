@@ -151,6 +151,40 @@ describe("runToGate", () => {
 		expect(res.finalConfig).toEqual({ model: "opus", effort: "high" });
 	});
 
+	it("threads the recorded run id and a 1-based, climbing attempt number to each dispatch", async () => {
+		const seen: { runId?: string; attempt?: number }[] = [];
+		let verifyCalls = 0;
+		const agent: Agent = {
+			async dispatch(d) {
+				seen.push({ runId: d.runId, attempt: d.attempt });
+				return { text: "attempt" };
+			},
+		};
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				return verifyCalls < 3
+					? { passed: false, errors: `boom ${verifyCalls}`, commands: [] }
+					: { passed: true, errors: "", commands: [] };
+			},
+		};
+
+		const res = await runToGate(
+			{ id: "run-42", prompt: "fix it" },
+			{ agent, workspace: fakeWorkspace(), gate, persist: recordingPersister() },
+		);
+
+		expect(res.passed).toBe(true);
+		// The recorded run id (Outcome.id) is stable across attempts; the attempt
+		// number is 1-based and climbs one per retry -- what ANVIL_RUN_ID/ANVIL_ATTEMPT
+		// resolve to in the bash tool's environment (see pi-agent.ts / tools.ts).
+		expect(seen).toEqual([
+			{ runId: "run-42", attempt: 1 },
+			{ runId: "run-42", attempt: 2 },
+			{ runId: "run-42", attempt: 3 },
+		]);
+	});
+
 	it("feeds the gate's error text into the retry prompt (root-cause feedback)", async () => {
 		const prompts: string[] = [];
 		let verifyCalls = 0;

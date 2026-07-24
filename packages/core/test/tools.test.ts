@@ -107,6 +107,31 @@ describe("bash tool", () => {
 		const out = await run(createBashTool(env), { command: "exit 3" });
 		expect(out).toContain("[exit code: 3]");
 	});
+
+	it("exposes injected env vars (ANVIL_RUN_ID/ANVIL_ATTEMPT/...) to the executed command", async () => {
+		const out = await run(createBashTool(env, { ANVIL_RUN_ID: "r1", ANVIL_ATTEMPT: "1" }), {
+			command: "echo $ANVIL_RUN_ID:$ANVIL_ATTEMPT",
+		});
+		expect(out).toContain("r1:1");
+	});
+
+	it("reflects a different attempt's env vars on the next call (no state leaks across attempts)", async () => {
+		const first = await run(createBashTool(env, { ANVIL_RUN_ID: "r1", ANVIL_ATTEMPT: "1" }), {
+			command: "echo $ANVIL_RUN_ID:$ANVIL_ATTEMPT",
+		});
+		const second = await run(createBashTool(env, { ANVIL_RUN_ID: "r1", ANVIL_ATTEMPT: "2" }), {
+			command: "echo $ANVIL_RUN_ID:$ANVIL_ATTEMPT",
+		});
+		expect(first).toContain("r1:1");
+		expect(second).toContain("r1:2");
+	});
+
+	it("still inherits the ambient environment alongside the injected vars", async () => {
+		const out = await run(createBashTool(env, { ANVIL_RUN_ID: "r1" }), {
+			command: '[ -n "$PATH" ] && echo has-path:$ANVIL_RUN_ID',
+		});
+		expect(out).toContain("has-path:r1");
+	});
 });
 
 describe("defaultTools", () => {
@@ -116,5 +141,12 @@ describe("defaultTools", () => {
 				.map((t) => t.name)
 				.sort(),
 		).toEqual(["bash", "edit", "read", "write"]);
+	});
+
+	it("threads bashEnv into the bash tool only", async () => {
+		const tools = defaultTools(env, { ANVIL_RUN_ID: "r7", ANVIL_ATTEMPT: "3" });
+		const bash = tools.find((t) => t.name === "bash");
+		const out = await run(bash, { command: "echo $ANVIL_RUN_ID:$ANVIL_ATTEMPT" });
+		expect(out).toContain("r7:3");
 	});
 });

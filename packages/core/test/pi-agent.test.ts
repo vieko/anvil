@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
@@ -119,6 +119,76 @@ describe("PiAgent.dispatch", () => {
 		expect(entries.some((entry) => String(entry).endsWith(".jsonl"))).toBe(true);
 
 		await rm(sessionsRoot, { recursive: true, force: true });
+	});
+
+	it("exposes ANVIL_RUN_ID/ANVIL_ATTEMPT/ANVIL_MODEL/ANVIL_EFFORT to commands run via the bash tool", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "anvil-bash-env-"));
+		const toolEnv = new NodeExecutionEnv({ cwd: dir });
+		try {
+			faux.setResponses([
+				fauxAssistantMessage(
+					[
+						fauxToolCall("bash", {
+							command: 'printf "%s:%s:%s:%s" "$ANVIL_RUN_ID" "$ANVIL_ATTEMPT" "$ANVIL_MODEL" "$ANVIL_EFFORT" > out.txt',
+						}),
+					],
+					{
+						stopReason: "toolUse",
+					},
+				),
+				fauxAssistantMessage("done"),
+			]);
+			const agent = new PiAgent({ env: toolEnv, models, resolveModel: () => model, systemPrompt: "test" });
+
+			await agent.dispatch({
+				prompt: "go",
+				config: { model: "faux-cheap", effort: "high" },
+				runId: "run-1",
+				attempt: 1,
+			});
+
+			const out = await readFile(join(dir, "out.txt"), "utf8");
+			expect(out).toBe("run-1:1:faux-cheap:high");
+		} finally {
+			await toolEnv.cleanup();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("advances ANVIL_ATTEMPT (and escalated model/effort) across attempts, without leaking the prior attempt's values", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "anvil-bash-env-"));
+		const toolEnv = new NodeExecutionEnv({ cwd: dir });
+		try {
+			const cmd = 'printf "%s:%s:%s:%s" "$ANVIL_RUN_ID" "$ANVIL_ATTEMPT" "$ANVIL_MODEL" "$ANVIL_EFFORT" > out.txt';
+			faux.setResponses([
+				fauxAssistantMessage([fauxToolCall("bash", { command: cmd })], { stopReason: "toolUse" }),
+				fauxAssistantMessage("first done"),
+			]);
+			const agent = new PiAgent({ env: toolEnv, models, resolveModel: () => model, systemPrompt: "test" });
+
+			await agent.dispatch({
+				prompt: "go",
+				config: { model: "faux-cheap", effort: "low" },
+				runId: "run-1",
+				attempt: 1,
+			});
+			expect(await readFile(join(dir, "out.txt"), "utf8")).toBe("run-1:1:faux-cheap:low");
+
+			faux.setResponses([
+				fauxAssistantMessage([fauxToolCall("bash", { command: cmd })], { stopReason: "toolUse" }),
+				fauxAssistantMessage("second done"),
+			]);
+			await agent.dispatch({
+				prompt: "retry",
+				config: { model: "faux-strong", effort: "high" },
+				runId: "run-1",
+				attempt: 2,
+			});
+			expect(await readFile(join(dir, "out.txt"), "utf8")).toBe("run-1:2:faux-strong:high");
+		} finally {
+			await toolEnv.cleanup();
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("forwards the model's reasoning trace as a reasoning activity (on thinking_end)", async () => {

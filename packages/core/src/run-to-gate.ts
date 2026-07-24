@@ -154,7 +154,14 @@ export async function runToGate(
 		const config = escalate(base, attempt);
 
 		await record("running", attempt, config);
-		const dispatch = await agent.dispatch({ prompt, config, resume: sessionId, signal: options.signal });
+		const dispatch = await agent.dispatch({
+			prompt,
+			config,
+			resume: sessionId,
+			signal: options.signal,
+			runId: outcome.id,
+			attempt: attempt + 1,
+		});
 		sessionId = dispatch.sessionId ?? sessionId;
 
 		// False-pass guard (forge #19/#297): a "successful" turn that returned

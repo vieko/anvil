@@ -142,7 +142,7 @@ const bashSchema = Type.Object({
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional; no default timeout)" })),
 });
 
-export function createBashTool(env: ExecutionEnv): AgentTool<typeof bashSchema> {
+export function createBashTool(env: ExecutionEnv, extraEnv?: Record<string, string>): AgentTool<typeof bashSchema> {
 	return {
 		name: "bash",
 		label: "Bash",
@@ -152,7 +152,7 @@ export function createBashTool(env: ExecutionEnv): AgentTool<typeof bashSchema> 
 			"A non-zero exit code is returned as output, not an error.",
 		parameters: bashSchema,
 		async execute(_id, { command, timeout }, signal) {
-			const result = await env.exec(command, { timeout, abortSignal: signal });
+			const result = await env.exec(command, { timeout, abortSignal: signal, env: extraEnv });
 			if (!result.ok) {
 				// Could not run to completion (timeout/spawn/abort) -- a real tool error.
 				throw new Error(`Command could not run (${result.error.code}): ${result.error.message}`);
@@ -185,7 +185,11 @@ function tailTruncate(output: string): { value: string; truncated: boolean } {
 	return { value, truncated };
 }
 
-/** The default tool set that gives the agent hands: read, edit, write, bash. */
-export function defaultTools(env: ExecutionEnv): AgentTool[] {
-	return [createReadTool(env), createEditTool(env), createWriteTool(env), createBashTool(env)];
+/**
+ * The default tool set that gives the agent hands: read, edit, write, bash.
+ * `bashEnv` (e.g. `ANVIL_RUN_ID` / `ANVIL_ATTEMPT` / `ANVIL_MODEL` /
+ * `ANVIL_EFFORT`) is layered into every bash tool invocation's environment.
+ */
+export function defaultTools(env: ExecutionEnv, bashEnv?: Record<string, string>): AgentTool[] {
+	return [createReadTool(env), createEditTool(env), createWriteTool(env), createBashTool(env, bashEnv)];
 }
