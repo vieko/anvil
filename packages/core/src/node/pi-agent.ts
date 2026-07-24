@@ -1,6 +1,7 @@
 import type { AgentHarnessEvent, AgentTool, ExecutionEnv, Session, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AgentHarness, InMemorySessionRepo, JsonlSessionRepo } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model, Models, RetryPolicy } from "@earendil-works/pi-ai";
+import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type {
 	Agent,
@@ -42,7 +43,11 @@ export interface PiAgentOptions {
 	sessionCwd?: string;
 	/** Live activity sink: receives tool-call lifecycle events during a dispatch. */
 	onActivity?: AgentEventSink;
-	/** Map anvil Effort to pi ThinkingLevel. Default: identity, with `max` -> `xhigh`. */
+	/**
+	 * Map anvil Effort to pi ThinkingLevel. Default: identity (anvil's Effort is
+	 * a subset of pi's ThinkingLevel as of pi-ai 0.82, which added `max`). The
+	 * result is clamped to the resolved model's verified levels before dispatch.
+	 */
 	thinkingLevel?: (effort: Effort | undefined) => ThinkingLevel | undefined;
 	/**
 	 * Retry policy for the harness's provider requests. Default:
@@ -99,13 +104,20 @@ export class PiAgent implements Agent {
 		const sessionId = (await session.getMetadata()).id;
 		this.sessions.set(sessionId, session);
 
+		// Clamp the requested thinking level to what the resolved model verifies
+		// (pi-ai catalog metadata): the correctness layer of issue #31 -- anvil
+		// never sends an unverified level, no matter who built the ladder. An
+		// undefined level (no effort requested) stays undefined: provider default.
+		const requested = (this.options.thinkingLevel ?? defaultThinkingLevel)(d.config.effort);
+		const thinkingLevel = requested === undefined ? undefined : clampThinkingLevel(model, requested);
+
 		const harness = new AgentHarness({
 			session,
 			models: this.models,
 			model,
 			tools: this.options.tools ?? defaultTools(this.options.env, bashEnvFor(d)),
 			systemPrompt: this.options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-			thinkingLevel: (this.options.thinkingLevel ?? defaultThinkingLevel)(d.config.effort),
+			thinkingLevel,
 			retry: this.options.retry ?? DEFAULT_RETRY_POLICY,
 		});
 
@@ -208,14 +220,12 @@ function bashEnvFor(d: AgentDispatch): Record<string, string> {
 	return env;
 }
 
-/** anvil Effort -> pi ThinkingLevel. `max` has no pi equivalent, so it maps to `xhigh`. */
+/**
+ * anvil Effort -> pi ThinkingLevel: identity. pi-ai 0.82 added `max` to the
+ * ThinkingLevel union, so every anvil effort now has a pi equivalent — the
+ * assignability of this return is the compile-time pin on that subset
+ * relationship (a runtime pin lives in model-resolver.test.ts).
+ */
 function defaultThinkingLevel(effort: Effort | undefined): ThinkingLevel | undefined {
-	switch (effort) {
-		case undefined:
-			return undefined;
-		case "max":
-			return "xhigh";
-		default:
-			return effort;
-	}
+	return effort;
 }

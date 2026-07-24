@@ -1,6 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import type { Agent, AgentActivity, Gate, ModelEffort, Outcome, StatePersister, Workspace } from "@anvil/core";
+import type {
+	Agent,
+	AgentActivity,
+	Escalator,
+	Gate,
+	ModelEffort,
+	Outcome,
+	StatePersister,
+	Workspace,
+} from "@anvil/core";
 import { runToGate } from "@anvil/core";
 import type { RunOptions } from "./cli.ts";
 import { type Palette, type Palettes, plainPalette, plainPalettes } from "./color.ts";
@@ -11,6 +20,8 @@ export interface RunDeps {
 	workspace: Workspace;
 	gate: Gate;
 	persist: StatePersister;
+	/** Escalation ladder override (e.g. catalog-clamped). Default: core's `escalate`. */
+	escalate?: Escalator;
 }
 
 /** Output sink. Injected so the surface is testable without touching the console. */

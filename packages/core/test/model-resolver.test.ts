@@ -1,7 +1,8 @@
 import type { Model } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { buildEscalationLadder } from "../src/index.ts";
-import { createModelResolver, DEFAULT_MODEL_ALIASES } from "../src/node/model-resolver.ts";
+import { buildEscalationLadder, EFFORT_LADDER } from "../src/index.ts";
+import { createModelResolver, createSupportedEfforts, DEFAULT_MODEL_ALIASES } from "../src/node/model-resolver.ts";
 
 describe("createModelResolver", () => {
 	it("defaults to the Vercel AI Gateway for the logical aliases", () => {
@@ -87,5 +88,62 @@ describe("createModelResolver", () => {
 			expect(() => resolve(rung)).not.toThrow();
 		}
 		expect(DEFAULT_MODEL_ALIASES.sonnet).toContain("claude-sonnet");
+	});
+});
+
+describe("createSupportedEfforts", () => {
+	// Against the real pi-ai catalog: pi 0.82 marks xhigh/max supported only
+	// when the provider verified them (thinkingLevelMap), so these pin the
+	// catalog facts the escalation ladder clamps against. Note: opus resolves
+	// through the claude-opus-5 DERIVED_MODELS bridge and inherits opus-4.8's
+	// thinking metadata -- an approximation until pi-ai ships real opus-5
+	// metadata (#33).
+	const supported = createSupportedEfforts();
+
+	it("reports haiku verifies nothing above high", () => {
+		expect(supported("haiku")).toEqual(["low", "medium", "high"]);
+	});
+
+	it("reports sonnet and opus verify the full ladder (xhigh + max)", () => {
+		expect(supported("sonnet")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+		expect(supported("opus")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+	});
+
+	it("reports luna's xhigh ceiling (no max)", () => {
+		expect(supported("luna")).toEqual(["low", "medium", "high", "xhigh"]);
+	});
+
+	it("returns undefined for an unresolvable name instead of throwing (no capability info, no clamping)", () => {
+		expect(supported("nope-9000")).toBeUndefined();
+	});
+
+	it("leaves the default ladder from the default base untouched (every rung already verified)", () => {
+		const base = { model: "sonnet", effort: "low" } as const;
+		expect(buildEscalationLadder(base, { supportedEfforts: supported })).toEqual(buildEscalationLadder(base));
+	});
+
+	it("clamps an explicit max on haiku down to its verified ceiling in the ladder", () => {
+		expect(buildEscalationLadder({ model: "haiku", effort: "max" }, { supportedEfforts: supported })).toEqual([
+			{ model: "haiku", effort: "high" },
+			{ model: "opus", effort: "max" },
+		]);
+	});
+});
+
+describe("Effort <-> ThinkingLevel intersection (drift pin)", () => {
+	// anvil's Effort must stay exactly pi's ThinkingLevel minus off/minimal.
+	// A faux model with every optional level verified makes pi enumerate its
+	// full runtime level list; this pins the mapping at every dep bump (the
+	// compile-time half lives in pi-agent.ts's defaultThinkingLevel).
+	it("EFFORT_LADDER is pi's full thinking-level list minus off/minimal", () => {
+		const fullMap = { reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" } } as unknown as Model<any>;
+		const piLevels = getSupportedThinkingLevels(fullMap);
+		expect(piLevels.filter((level) => (EFFORT_LADDER as readonly string[]).includes(level))).toEqual([
+			...EFFORT_LADDER,
+		]);
+		expect(piLevels.filter((level) => !(EFFORT_LADDER as readonly string[]).includes(level))).toEqual([
+			"off",
+			"minimal",
+		]);
 	});
 });

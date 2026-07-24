@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import type { AgentEventSink } from "@anvil/core";
-import { CommandGate, FileStatePersister, PiAgent, WorktreeWorkspace } from "@anvil/core/node";
+import { makeEscalator } from "@anvil/core";
+import { CommandGate, createSupportedEfforts, FileStatePersister, PiAgent, WorktreeWorkspace } from "@anvil/core/node";
 import type { RunOptions } from "./cli.ts";
 import type { RunDeps } from "./run.ts";
 import { repoStateDirs } from "./state-paths.ts";
@@ -50,5 +51,11 @@ export async function buildRunDeps(
 	const gate = new CommandGate({ commands });
 	const persist = new FileStatePersister({ dir: runsDir });
 
-	return { deps: { agent, workspace, gate, persist }, workspace, branch };
+	// Clamp escalation rungs to the catalog's provider-verified reasoning levels
+	// (#31): the ladder skips rungs the model can't distinguish, so every paid
+	// attempt is a real escalation. Uses the same default resolver PiAgent
+	// dispatches with, so ladder and dispatch agree on the model's capabilities.
+	const escalate = makeEscalator({ supportedEfforts: createSupportedEfforts() });
+
+	return { deps: { agent, workspace, gate, persist, escalate }, workspace, branch };
 }

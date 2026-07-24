@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { Model, MutableModels, RetryPolicy } from "@earendil-works/pi-ai";
 import {
@@ -15,9 +16,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentActivity, ModelEffort } from "../src/index.ts";
 import { DEFAULT_RETRY_POLICY, PiAgent } from "../src/node/pi-agent.ts";
 
-// Captured by the `AgentHarness` spy installed below, so retry tests can
-// assert on the `RetryPolicy` PiAgent actually hands to the harness.
+// Captured by the `AgentHarness` spy installed below, so retry/thinking tests
+// can assert on the options PiAgent actually hands to the harness.
 let capturedRetry: RetryPolicy | undefined;
+let capturedThinkingLevel: ThinkingLevel | undefined;
 
 vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
@@ -25,6 +27,7 @@ vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
 		// Generic pass-through: AgentHarness's constructor generics can't be named here, so accept loosely and forward.
 		constructor(options: any) {
 			capturedRetry = options.retry;
+			capturedThinkingLevel = options.thinkingLevel;
 			super(options);
 		}
 	}
@@ -42,6 +45,7 @@ let env: NodeExecutionEnv;
 
 beforeEach(() => {
 	capturedRetry = undefined;
+	capturedThinkingLevel = undefined;
 	faux = fauxProvider({
 		models: [{ id: "faux-cheap", cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 } }],
 	});
@@ -226,6 +230,37 @@ describe("PiAgent.dispatch", () => {
 		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
 
 		expect(capturedRetry).toEqual(override);
+	});
+
+	it("clamps the thinking level to the resolved model's verified levels (max unverified -> high)", async () => {
+		faux.setResponses([fauxAssistantMessage("done")]);
+		// A reasoning model with no thinkingLevelMap: pi 0.82 treats xhigh/max as
+		// unverified, so a requested max must clamp down to high before dispatch.
+		const limited = { ...model, reasoning: true } as Model<string>;
+		const agent = new PiAgent({ env, models, resolveModel: () => limited, systemPrompt: "test" });
+
+		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap", effort: "max" } });
+
+		expect(capturedThinkingLevel).toBe("high");
+	});
+
+	it("passes max through to the harness when the model verifies it (regression: stale max -> xhigh mapping)", async () => {
+		faux.setResponses([fauxAssistantMessage("done")]);
+		const capable = { ...model, reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" } } as Model<string>;
+		const agent = new PiAgent({ env, models, resolveModel: () => capable, systemPrompt: "test" });
+
+		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap", effort: "max" } });
+
+		expect(capturedThinkingLevel).toBe("max");
+	});
+
+	it("leaves the thinking level undefined when no effort is requested (provider default)", async () => {
+		faux.setResponses([fauxAssistantMessage("done")]);
+		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+
+		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
+
+		expect(capturedThinkingLevel).toBeUndefined();
 	});
 
 	it("forwards the model's reasoning trace as a reasoning activity (on thinking_end)", async () => {

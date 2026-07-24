@@ -14,6 +14,12 @@
 //   1. If effort is below `high`, jump to `high` (same model).
 //   2. If on a weak-tier model, switch to the strong tier (keeping effort).
 //   3. Climb the strong model's effort toward `max`.
+//
+// When the policy carries a `supportedEfforts` capability seam, every rung
+// (including rung 0, the user's explicit base) is clamped to the model's
+// verified levels and consecutive duplicates are skipped — each rung must be
+// a real, distinct escalation, never the previous request under a different
+// label. Duplicate rungs waste paid attempts under the attempt cap.
 
 import type { Effort, Escalator, ModelEffort } from "./types.ts";
 
@@ -32,16 +38,60 @@ function effortIndex(effort: Effort | undefined): number {
 	return i < 0 ? EFFORT_LADDER.indexOf("high") : i;
 }
 
+/**
+ * Verified effort levels for a logical model name. `undefined` means "no
+ * capability info" (unknown model): the ladder is left unclamped. This is a
+ * capability seam, not a policy knob — it reports what the provider verifies,
+ * not which level performs best.
+ */
+export type SupportedEfforts = (model: string) => readonly Effort[] | undefined;
+
 export interface EscalationPolicy {
 	/** Model tier to climb to when the base model is weak. Defaults to {@link DEFAULT_STRONG_MODEL}. */
 	strongModel?: string;
 	/** Matches weak-tier models that should escalate to `strongModel`. Defaults to {@link DEFAULT_WEAK_TIER}. */
 	weakTier?: RegExp;
+	/**
+	 * Verified efforts per model. When set, every rung's effort is clamped to
+	 * the model's verified levels and rungs that collapse into their predecessor
+	 * are skipped. Default: unset (no clamping).
+	 */
+	supportedEfforts?: SupportedEfforts;
+}
+
+/** Clamp `effort` to the nearest verified level: down first, then up. */
+function clampEffort(effort: Effort, supported: readonly Effort[]): Effort {
+	if (supported.length === 0 || supported.includes(effort)) return effort;
+	const idx = EFFORT_LADDER.indexOf(effort);
+	for (let i = idx - 1; i >= 0; i--) if (supported.includes(EFFORT_LADDER[i])) return EFFORT_LADDER[i];
+	for (let i = idx + 1; i < EFFORT_LADDER.length; i++)
+		if (supported.includes(EFFORT_LADDER[i])) return EFFORT_LADDER[i];
+	return effort;
+}
+
+/**
+ * Clamp each rung's effort to the model's verified levels (rung 0 included:
+ * an explicit `--effort max` on a model without `max` must clamp here too, or
+ * rungs 0/1 become duplicates in disguise), then skip rungs that collapse
+ * into their predecessor. An `undefined` effort (provider default) is never
+ * clamped.
+ */
+function clampLadder(rungs: ModelEffort[], supportedEfforts: SupportedEfforts): ModelEffort[] {
+	const out: ModelEffort[] = [];
+	for (const rung of rungs) {
+		const supported = rung.effort === undefined ? undefined : supportedEfforts(rung.model);
+		const effort = supported && rung.effort !== undefined ? clampEffort(rung.effort, supported) : rung.effort;
+		const prev = out[out.length - 1];
+		if (prev && prev.model === rung.model && prev.effort === effort) continue;
+		out.push({ model: rung.model, effort });
+	}
+	return out;
 }
 
 /**
  * Build the full escalation ladder for a base config. Rung 0 is the base
- * itself, unchanged. Each later rung is strictly stronger than the last.
+ * (clamped to verified levels when `supportedEfforts` is set, otherwise
+ * unchanged). Each later rung is strictly stronger than the last.
  */
 export function buildEscalationLadder(base: ModelEffort, policy: EscalationPolicy = {}): ModelEffort[] {
 	const strongModel = policy.strongModel ?? DEFAULT_STRONG_MODEL;
@@ -66,7 +116,7 @@ export function buildEscalationLadder(base: ModelEffort, policy: EscalationPolic
 	for (let i = idx + 1; i < EFFORT_LADDER.length; i++) {
 		rungs.push({ model, effort: EFFORT_LADDER[i] });
 	}
-	return rungs;
+	return policy.supportedEfforts ? clampLadder(rungs, policy.supportedEfforts) : rungs;
 }
 
 /**

@@ -1,5 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
+import { EFFORT_LADDER, type Effort, type SupportedEfforts } from "../index.ts";
 import type { ModelResolver } from "./pi-agent.ts";
 
 // Loosely-typed views of pi-ai's built-in catalog. The exported
@@ -109,6 +111,34 @@ function findById(id: string): Model<any> | undefined {
 		if (model) return model;
 	}
 	return undefined;
+}
+
+/**
+ * Build a {@link SupportedEfforts} capability seam from a resolver: resolve
+ * the logical name against pi-ai's catalog and report which anvil efforts the
+ * model verifies (pi's thinking levels intersected with {@link EFFORT_LADDER};
+ * pi's `off`/`minimal` have no anvil equivalent and drop out). An unresolvable
+ * name yields `undefined` — no capability info, no clamping — rather than an
+ * error: the ladder must stay buildable for models only the caller's own
+ * resolver knows about.
+ *
+ * Pass the same resolver the agent dispatches with (or share the default) so
+ * the ladder clamps against the model that will actually run.
+ */
+export function createSupportedEfforts(resolve: ModelResolver = createModelResolver()): SupportedEfforts {
+	const cache = new Map<string, readonly Effort[] | undefined>();
+	return (model) => {
+		if (cache.has(model)) return cache.get(model);
+		let result: readonly Effort[] | undefined;
+		try {
+			const levels = getSupportedThinkingLevels(resolve({ model }));
+			result = EFFORT_LADDER.filter((effort) => levels.includes(effort));
+		} catch {
+			result = undefined;
+		}
+		cache.set(model, result);
+		return result;
+	};
 }
 
 function hint(name: string): string {

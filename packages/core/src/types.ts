@@ -190,6 +190,14 @@ export interface RunRecord {
 	state: RunState;
 	attempt: number;
 	maxAttempts: number;
+	/**
+	 * The (model, effort) this attempt dispatched. This record is the sole
+	 * source of truth for attempt -> config correlation: the escalation ladder
+	 * clamps and skips rungs based on catalog capability data (see
+	 * `EscalationPolicy.supportedEfforts`), so external tooling (e.g. anything
+	 * reading `ANVIL_ATTEMPT` from the agent's bash env) must not re-derive the
+	 * config from ladder math.
+	 */
 	config: ModelEffort;
 	errors?: string;
 	sessionId?: string;

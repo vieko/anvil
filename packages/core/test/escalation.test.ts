@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildEscalationLadder, EFFORT_LADDER, escalate, makeEscalator } from "../src/escalation.ts";
+import type { Effort } from "../src/types.ts";
 
 // Ported from forge's escalation.test.ts (A4 parity), adapted to anvil's
 // provider-agnostic ladder. Two deliberate divergences from forge are pinned
@@ -91,6 +92,85 @@ describe("buildEscalationLadder", () => {
 			{ model: "opus", effort: "xhigh" },
 			{ model: "opus", effort: "max" },
 		]);
+	});
+});
+
+describe("buildEscalationLadder with supportedEfforts (catalog clamping, #31)", () => {
+	// Fakes shaped like pi-ai 0.82's verified-levels catalog: haiku-like models
+	// verify nothing above high; luna-like models have an xhigh ceiling (no max);
+	// the strong tier verifies everything.
+	const catalog: Record<string, readonly Effort[]> = {
+		haiku: ["low", "medium", "high"],
+		luna: ["low", "medium", "high", "xhigh"],
+		sonnet: ["low", "medium", "high", "xhigh", "max"],
+		opus: ["low", "medium", "high", "xhigh", "max"],
+	};
+	const supportedEfforts = (model: string) => catalog[model];
+
+	it("skips rungs above the strong model's ceiling instead of repeating the previous request", () => {
+		// A luna-like strong tier: the raw ladder would end luna@xhigh -> luna@max,
+		// but max is unverified and clamps into a duplicate of xhigh -- skipped.
+		expect(
+			buildEscalationLadder(
+				{ model: "haiku", effort: "low" },
+				{ strongModel: "luna", weakTier: /haiku/, supportedEfforts },
+			),
+		).toEqual([
+			{ model: "haiku", effort: "low" },
+			{ model: "haiku", effort: "high" },
+			{ model: "luna", effort: "high" },
+			{ model: "luna", effort: "xhigh" },
+		]);
+	});
+
+	it("clamps rung 0: an explicit max on a model without max is a real rung, not a duplicate in disguise", () => {
+		expect(buildEscalationLadder({ model: "haiku", effort: "max" }, { supportedEfforts })).toEqual([
+			{ model: "haiku", effort: "high" },
+			{ model: "opus", effort: "max" },
+		]);
+	});
+
+	it("clamps a base above the model's ceiling before the model switch", () => {
+		expect(buildEscalationLadder({ model: "haiku", effort: "xhigh" }, { supportedEfforts })).toEqual([
+			{ model: "haiku", effort: "high" },
+			{ model: "opus", effort: "xhigh" },
+			{ model: "opus", effort: "max" },
+		]);
+	});
+
+	it("dedupes the whole effort climb down to the model's ceiling when there is no model switch", () => {
+		// No weak-tier match: the raw ladder climbs haiku@low -> high -> xhigh -> max,
+		// but everything above high clamps into duplicates and is skipped.
+		expect(buildEscalationLadder({ model: "haiku", effort: "low" }, { weakTier: /nothing/, supportedEfforts })).toEqual(
+			[
+				{ model: "haiku", effort: "low" },
+				{ model: "haiku", effort: "high" },
+			],
+		);
+	});
+
+	it("leaves the ladder unclamped for models without capability info (undefined)", () => {
+		expect(buildEscalationLadder({ model: "gpt-5", effort: "low" }, { supportedEfforts })).toEqual(
+			buildEscalationLadder({ model: "gpt-5", effort: "low" }),
+		);
+	});
+
+	it("never clamps an undefined effort (provider default rides through)", () => {
+		const ladder = buildEscalationLadder({ model: "haiku", effort: undefined }, { supportedEfforts });
+		expect(ladder[0]).toEqual({ model: "haiku", effort: undefined });
+	});
+
+	it("is a no-op for a ladder whose rungs are all verified", () => {
+		expect(buildEscalationLadder({ model: "sonnet", effort: "low" }, { supportedEfforts })).toEqual(
+			buildEscalationLadder({ model: "sonnet", effort: "low" }),
+		);
+	});
+
+	it("threads through makeEscalator: attempts index the clamped ladder", () => {
+		const climb = makeEscalator({ strongModel: "luna", weakTier: /haiku/, supportedEfforts });
+		expect(climb({ model: "haiku", effort: "low" }, 3)).toEqual({ model: "luna", effort: "xhigh" });
+		// Past the ladder end clamps at the strongest *verified* rung, not luna@max.
+		expect(climb({ model: "haiku", effort: "low" }, 99)).toEqual({ model: "luna", effort: "xhigh" });
 	});
 });
 
