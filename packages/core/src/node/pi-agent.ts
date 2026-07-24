@@ -89,7 +89,6 @@ export class PiAgent implements Agent {
 		this.sessions.set(sessionId, session);
 
 		const harness = new AgentHarness({
-			env: this.options.env,
 			session,
 			models: this.models,
 			model,
