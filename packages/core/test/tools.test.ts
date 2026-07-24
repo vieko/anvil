@@ -149,4 +149,10 @@ describe("defaultTools", () => {
 		const out = await run(bash, { command: "echo $ANVIL_RUN_ID:$ANVIL_ATTEMPT" });
 		expect(out).toContain("r7:3");
 	});
+
+	it("prefers (never requires) strict JSON-Schema constrained sampling on every tool", () => {
+		for (const tool of defaultTools(env)) {
+			expect(tool.constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
+		}
+	});
 });

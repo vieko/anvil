@@ -1,6 +1,6 @@
 import type { AgentHarnessEvent, AgentTool, ExecutionEnv, Session, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AgentHarness, InMemorySessionRepo, JsonlSessionRepo } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model, Models, RetryPolicy } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type {
 	Agent,
@@ -44,7 +44,18 @@ export interface PiAgentOptions {
 	onActivity?: AgentEventSink;
 	/** Map anvil Effort to pi ThinkingLevel. Default: identity, with `max` -> `xhigh`. */
 	thinkingLevel?: (effort: Effort | undefined) => ThinkingLevel | undefined;
+	/**
+	 * Retry policy for the harness's provider requests. Default:
+	 * {@link DEFAULT_RETRY_POLICY} (enabled, 3 retries, 2s base delay,
+	 * exponential backoff) -- transient provider/transport failures (rate
+	 * limits, 5xx, dropped connections) get retried instead of surfacing
+	 * immediately as a failed dispatch.
+	 */
+	retry?: RetryPolicy;
 }
+
+/** Default {@link RetryPolicy} for every {@link PiAgent}, overridable via {@link PiAgentOptions.retry}. */
+export const DEFAULT_RETRY_POLICY: RetryPolicy = { enabled: true, maxRetries: 3, baseDelayMs: 2000 };
 
 const DEFAULT_SYSTEM_PROMPT =
 	"You are an autonomous engineer. Achieve the requested outcome by editing files and running commands. " +
@@ -95,6 +106,7 @@ export class PiAgent implements Agent {
 			tools: this.options.tools ?? defaultTools(this.options.env, bashEnvFor(d)),
 			systemPrompt: this.options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
 			thinkingLevel: (this.options.thinkingLevel ?? defaultThinkingLevel)(d.config.effort),
+			retry: this.options.retry ?? DEFAULT_RETRY_POLICY,
 		});
 
 		const onAbort = () => void harness.abort();

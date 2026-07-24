@@ -1,5 +1,5 @@
 import type { AgentTool, ExecutionEnv } from "@earendil-works/pi-agent-core";
-import type { TextContent } from "@earendil-works/pi-ai";
+import type { ConstrainedSamplingConfig, TextContent } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
 // anvil's own read/edit/write/bash tools, bound to a pi ExecutionEnv. Lean and
@@ -10,6 +10,12 @@ import { Type } from "typebox";
 
 const MAX_LINES = 2000;
 const MAX_BYTES = 50 * 1024; // 50KB
+
+// Prefer (never require) strict JSON-Schema constrained sampling on every
+// anvil tool: on providers/models that advertise `supportsStrictTools`, this
+// tightens argument generation; everywhere else the model degrades to normal
+// tool-calling, so a `require` here would be a correctness hazard, not a gain.
+const PREFER_STRICT_JSON_SCHEMA: ConstrainedSamplingConfig = { type: "json_schema", strict: "prefer" };
 
 function text(value: string): TextContent {
 	return { type: "text", text: value };
@@ -37,6 +43,7 @@ export function createReadTool(env: ExecutionEnv): AgentTool<typeof readSchema> 
 			`${MAX_LINES} lines or ${MAX_BYTES / 1024}KB (whichever is hit first). ` +
 			"Use offset/limit to page through large files.",
 		parameters: readSchema,
+		constrainedSampling: PREFER_STRICT_JSON_SCHEMA,
 		async execute(_id, { path, offset, limit }) {
 			const content = unwrap(await env.readTextFile(path), `Could not read ${path}`);
 			const start = offset && offset > 0 ? offset - 1 : 0;
@@ -84,6 +91,7 @@ export function createEditTool(env: ExecutionEnv): AgentTool<typeof editSchema> 
 			"region of the file. Keep oldText minimal but unique; merge nearby changes into one edit rather than " +
 			"emitting overlapping edits. Each oldText is matched against the original file, not after earlier edits apply.",
 		parameters: editSchema,
+		constrainedSampling: PREFER_STRICT_JSON_SCHEMA,
 		async execute(_id, { path, edits }) {
 			const original = unwrap(await env.readTextFile(path), `Could not edit ${path}`);
 
@@ -128,6 +136,7 @@ export function createWriteTool(env: ExecutionEnv): AgentTool<typeof writeSchema
 		label: "Write",
 		description: "Create a new file or overwrite an existing one with the given contents.",
 		parameters: writeSchema,
+		constrainedSampling: PREFER_STRICT_JSON_SCHEMA,
 		async execute(_id, { path, content }) {
 			unwrap(await env.writeFile(path, content), `Could not write ${path}`);
 			return { content: [text(`Wrote ${Buffer.byteLength(content, "utf8")} bytes to ${path}.`)], details: {} };
@@ -151,6 +160,7 @@ export function createBashTool(env: ExecutionEnv, extraEnv?: Record<string, stri
 			`Output is truncated to the last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB (whichever is hit first). ` +
 			"A non-zero exit code is returned as output, not an error.",
 		parameters: bashSchema,
+		constrainedSampling: PREFER_STRICT_JSON_SCHEMA,
 		async execute(_id, { command, timeout }, signal) {
 			const result = await env.exec(command, { timeout, abortSignal: signal, env: extraEnv });
 			if (!result.ok) {

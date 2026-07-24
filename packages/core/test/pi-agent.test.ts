@@ -2,7 +2,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import type { Model, MutableModels } from "@earendil-works/pi-ai";
+import type { Model, MutableModels, RetryPolicy } from "@earendil-works/pi-ai";
 import {
 	createModels,
 	fauxAssistantMessage,
@@ -11,9 +11,25 @@ import {
 	fauxThinking,
 	fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentActivity, ModelEffort } from "../src/index.ts";
-import { PiAgent } from "../src/node/pi-agent.ts";
+import { DEFAULT_RETRY_POLICY, PiAgent } from "../src/node/pi-agent.ts";
+
+// Captured by the `AgentHarness` spy installed below, so retry tests can
+// assert on the `RetryPolicy` PiAgent actually hands to the harness.
+let capturedRetry: RetryPolicy | undefined;
+
+vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
+	class SpyAgentHarness extends actual.AgentHarness {
+		// Generic pass-through: AgentHarness's constructor generics can't be named here, so accept loosely and forward.
+		constructor(options: any) {
+			capturedRetry = options.retry;
+			super(options);
+		}
+	}
+	return { ...actual, AgentHarness: SpyAgentHarness };
+});
 
 // Drives the real AgentHarness against pi-ai's faux provider — no network, no
 // API key, no tools. Exercises the Agent seam: text/usage/sessionId extraction,
@@ -25,6 +41,7 @@ let models: MutableModels;
 let env: NodeExecutionEnv;
 
 beforeEach(() => {
+	capturedRetry = undefined;
 	faux = fauxProvider({
 		models: [{ id: "faux-cheap", cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 } }],
 	});
@@ -189,6 +206,26 @@ describe("PiAgent.dispatch", () => {
 			await toolEnv.cleanup();
 			await rm(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("defaults to DEFAULT_RETRY_POLICY (enabled, 3 retries, 2s base delay) when no retry is supplied", async () => {
+		faux.setResponses([fauxAssistantMessage("done")]);
+		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+
+		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
+
+		expect(DEFAULT_RETRY_POLICY).toEqual({ enabled: true, maxRetries: 3, baseDelayMs: 2000 });
+		expect(capturedRetry).toEqual(DEFAULT_RETRY_POLICY);
+	});
+
+	it("threads an overridden PiAgentOptions.retry through to the harness", async () => {
+		faux.setResponses([fauxAssistantMessage("done")]);
+		const override: RetryPolicy = { enabled: false, maxRetries: 0, baseDelayMs: 100 };
+		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test", retry: override });
+
+		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
+
+		expect(capturedRetry).toEqual(override);
 	});
 
 	it("forwards the model's reasoning trace as a reasoning activity (on thinking_end)", async () => {
