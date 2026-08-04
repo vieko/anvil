@@ -15,16 +15,15 @@ describe("createModelResolver", () => {
 		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-5.6-luna");
 	});
 
-	it("bridges claude-opus-5 from opus-4.8's builtin metadata until pi-ai's catalog includes it", () => {
+	it("resolves claude-opus-5 from pi-ai's builtin catalog (bridge retired in #33)", () => {
 		const resolve = createModelResolver();
 		const opus5 = resolve({ model: "vercel-ai-gateway:anthropic/claude-opus-5" });
-		const opus48 = resolve({ model: "vercel-ai-gateway:anthropic/claude-opus-4.8" });
 		expect(opus5.id).toBe("anthropic/claude-opus-5");
 		expect(opus5.name).toBe("Claude Opus 5");
-		// Everything but id/name is inherited from the 4.8 sibling (same gateway
-		// terms: 1M context, $5/$25 -- verified against the gateway remote catalog).
-		expect(opus5.cost).toEqual(opus48.cost);
-		expect(opus5.contextWindow).toBe(opus48.contextWindow);
+		// Pin the gateway terms the escalation ladder prices against
+		// (verified against the gateway remote catalog: 1M context, $5/$25).
+		expect(opus5.cost).toMatchObject({ input: 5, output: 25 });
+		expect(opus5.contextWindow).toBe(1_000_000);
 		expect(opus5.provider).toBe("vercel-ai-gateway");
 	});
 
@@ -92,12 +91,9 @@ describe("createModelResolver", () => {
 });
 
 describe("createSupportedEfforts", () => {
-	// Against the real pi-ai catalog: pi 0.82 marks xhigh/max supported only
+	// Against the real pi-ai catalog: pi marks xhigh/max supported only
 	// when the provider verified them (thinkingLevelMap), so these pin the
-	// catalog facts the escalation ladder clamps against. Note: opus resolves
-	// through the claude-opus-5 DERIVED_MODELS bridge and inherits opus-4.8's
-	// thinking metadata -- an approximation until pi-ai ships real opus-5
-	// metadata (#33).
+	// catalog facts the escalation ladder clamps against.
 	const supported = createSupportedEfforts();
 
 	it("reports haiku verifies nothing above high", () => {
