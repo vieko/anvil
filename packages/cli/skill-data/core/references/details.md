@@ -74,7 +74,8 @@ base is `sonnet` at `high` effort, so the default ladder is
 
 ## Model aliases
 
-`haiku` / `sonnet` / `opus` resolve to current Anthropic models through the
+`haiku` / `sonnet` / `opus` resolve to current Anthropic models, and
+`luna` / `terra` / `glm` to budget-tier OpenAI/Z.ai models, all through the
 Vercel AI Gateway (one key, `AI_GATEWAY_API_KEY`). Or pass a concrete
 `provider:model-id`. The default model is `sonnet` (at `high` effort).
 
