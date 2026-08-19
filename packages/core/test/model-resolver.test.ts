@@ -13,6 +13,15 @@ describe("createModelResolver", () => {
 		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
 		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-5.6-luna");
+		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-5.6-terra");
+		expect(resolve({ model: "glm" }).id).toBe("zai/glm-5.2");
+	});
+
+	it("every DEFAULT_WEAK_TIER-anticipated alias resolves (terra/glm gap closed)", () => {
+		const resolve = createModelResolver();
+		for (const name of Object.keys(DEFAULT_MODEL_ALIASES)) {
+			expect(() => resolve({ model: name })).not.toThrow();
+		}
 	});
 
 	it("resolves claude-opus-5 from pi-ai's builtin catalog (bridge retired in #33)", () => {

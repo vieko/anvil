@@ -35,6 +35,10 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-5",
 	opus: "vercel-ai-gateway:anthropic/claude-opus-5",
 	luna: "vercel-ai-gateway:openai/gpt-5.6-luna",
+	terra: "vercel-ai-gateway:openai/gpt-5.6-terra",
+	// glm tracks the newest GLM generation pi-ai's registry knows; bump to 5.3+
+	// when the upstream registry ships it.
+	glm: "vercel-ai-gateway:zai/glm-5.2",
 };
 
 /**
