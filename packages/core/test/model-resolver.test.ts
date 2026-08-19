@@ -36,6 +36,18 @@ describe("createModelResolver", () => {
 		expect(opus5.provider).toBe("vercel-ai-gateway");
 	});
 
+	it("resolves xai/grok-4.6 from the 0.84.2 gateway registry", () => {
+		const grok = createModelResolver()({ model: "vercel-ai-gateway:xai/grok-4.6" });
+		expect(grok.provider).toBe("vercel-ai-gateway");
+		expect(grok.id).toBe("xai/grok-4.6");
+	});
+
+	it("has no zai/glm-5.3 in the 0.84.2 registry, so the glm alias stays on glm-5.2", () => {
+		const resolve = createModelResolver();
+		expect(() => resolve({ model: "vercel-ai-gateway:zai/glm-5.3" })).toThrow(/unknown model/);
+		expect(DEFAULT_MODEL_ALIASES.glm).toBe("vercel-ai-gateway:zai/glm-5.2");
+	});
+
 	it("resolves the sonnet alias to anthropic/claude-sonnet-5", () => {
 		expect(createModelResolver()({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 	});

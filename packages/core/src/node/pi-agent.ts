@@ -1,4 +1,13 @@
-import type { AgentHarnessEvent, AgentTool, ExecutionEnv, Session, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type {
+	AbortResult,
+	AgentHarnessOptions,
+	AgentTool,
+	ExecutionEnv,
+	RunOutcome,
+	RunResult,
+	Session,
+	ThinkingLevel,
+} from "@earendil-works/pi-agent-core";
 import { AgentHarness, InMemorySessionRepo, JsonlSessionRepo } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model, Models, RetryPolicy } from "@earendil-works/pi-ai";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
@@ -17,6 +26,34 @@ import { defaultTools } from "./tools.ts";
 
 /** Resolve anvil's (model, effort) to a concrete pi-ai Model. The provider-agnostic seam. */
 export type ModelResolver = (config: ModelEffort) => Model<any>;
+
+/** pi 0.84's untyped passive event registry (`harness.events`): `on(type, listener)` returns an unsubscribe. */
+export interface HarnessEvents {
+	on(type: string, listener: (event: unknown) => void | Promise<void>): () => void;
+}
+
+/**
+ * The slice of pi's `AgentHarness` that one dispatch drives. Narrow on purpose:
+ * pi 0.84 made the harness constructor private (`AgentHarness.create` is the
+ * only way in), so this interface — not the class — is the seam engine tests
+ * fake, via {@link PiAgentOptions.createHarness}.
+ */
+export interface Harness {
+	prompt(text: string): Promise<RunResult>;
+	abort(): Promise<AbortResult>;
+	readonly events: HarnessEvents;
+	close(): Promise<void>;
+}
+
+/** Build the {@link Harness} a dispatch runs on. Default: {@link createAgentHarness}. */
+export type HarnessFactory = (options: AgentHarnessOptions) => Promise<Harness>;
+
+/** The production {@link HarnessFactory}: pi's `AgentHarness.create`. */
+export const createAgentHarness: HarnessFactory = async (options) => {
+	// `suspended` is ignored deliberately: anvil builds a fresh harness per dispatch and owns resumability in runToGate.
+	const { harness } = await AgentHarness.create(options);
+	return harness;
+};
 
 export interface PiAgentOptions {
 	/** Execution environment the agent operates in (e.g. `WorktreeWorkspace.env`). */
@@ -43,6 +80,12 @@ export interface PiAgentOptions {
 	sessionCwd?: string;
 	/** Live activity sink: receives tool-call lifecycle events during a dispatch. */
 	onActivity?: AgentEventSink;
+	/**
+	 * Build the harness for each dispatch. Default: {@link createAgentHarness}.
+	 * The injectable seam that replaces subclassing pi's `AgentHarness` (private
+	 * constructor as of 0.84), so engine tests drive a fake lane.
+	 */
+	createHarness?: HarnessFactory;
 	/**
 	 * Map anvil Effort to pi ThinkingLevel. Default: identity (anvil's Effort is
 	 * a subset of pi's ThinkingLevel as of pi-ai 0.82, which added `max`). The
@@ -71,16 +114,20 @@ const DEFAULT_SYSTEM_PROMPT =
  * The {@link Agent} seam, backed by pi-agent-core's `AgentHarness`.
  *
  * One `dispatch` == one complete agentic turn (the harness runs tool use until
- * the model stops), after which anvil's gate verifies the result. PiAgent owns
- * none of the verify/retry policy — that is `runToGate`'s job. It is
- * provider-agnostic: the caller supplies `resolveModel`, so the same engine can
- * run the cheapest capable model and escalate across providers.
+ * the model stops), after which anvil's gate verifies the result. Each dispatch
+ * builds its own harness ({@link PiAgentOptions.createHarness}) over the
+ * dispatch's session, so resumability stays in `runToGate` and only a run that
+ * reaches the `completed` outcome counts as work done. PiAgent owns none of the
+ * verify/retry policy — that is `runToGate`'s job. It is provider-agnostic: the
+ * caller supplies `resolveModel`, so the same engine can run the cheapest
+ * capable model and escalate across providers.
  */
 export class PiAgent implements Agent {
 	private readonly options: PiAgentOptions;
 	private readonly resolveModel: ModelResolver;
 	private readonly models: Models;
 	private readonly createSession: () => Promise<Session>;
+	private readonly createHarness: HarnessFactory;
 	/** Sessions created by this agent, so a `resume` continues the same transcript. */
 	private readonly sessions = new Map<string, Session>();
 
@@ -88,6 +135,7 @@ export class PiAgent implements Agent {
 		this.options = options;
 		this.resolveModel = options.resolveModel ?? createModelResolver();
 		this.models = options.models ?? builtinModels();
+		this.createHarness = options.createHarness ?? createAgentHarness;
 		if (options.sessionsRoot) {
 			const repo = new JsonlSessionRepo({ fs: options.env, sessionsRoot: options.sessionsRoot });
 			const cwd = options.sessionCwd ?? ".";
@@ -111,7 +159,7 @@ export class PiAgent implements Agent {
 		const requested = (this.options.thinkingLevel ?? defaultThinkingLevel)(d.config.effort);
 		const thinkingLevel = requested === undefined ? undefined : clampThinkingLevel(model, requested);
 
-		const harness = new AgentHarness({
+		const harness = await this.createHarness({
 			session,
 			models: this.models,
 			model,
@@ -121,17 +169,16 @@ export class PiAgent implements Agent {
 			retry: this.options.retry ?? DEFAULT_RETRY_POLICY,
 		});
 
-		const onAbort = () => void harness.abort();
+		const onAbort = () => void requestAbort(harness);
 		if (d.signal) {
-			if (d.signal.aborted) await harness.abort();
+			if (d.signal.aborted) await requestAbort(harness);
 			else d.signal.addEventListener("abort", onAbort, { once: true });
 		}
 
-		const sink = this.options.onActivity;
-		const unsubscribe = sink ? harness.subscribe((event) => forwardActivity(event, sink)) : undefined;
+		const unsubscribe = this.subscribeActivity(harness);
 
 		try {
-			const message = await harness.prompt(d.prompt);
+			const message = completedMessage(await harness.prompt(d.prompt));
 			return {
 				text: extractText(message),
 				usage: {
@@ -143,7 +190,22 @@ export class PiAgent implements Agent {
 			};
 		} finally {
 			d.signal?.removeEventListener("abort", onAbort);
-			unsubscribe?.();
+			for (const off of unsubscribe) off();
+			await releaseHarness(harness);
+		}
+	}
+
+	/** Wire the activity sink (when there is one) to the harness's event registry. Returns the unsubscribes. */
+	private subscribeActivity(harness: Harness): (() => void)[] {
+		const sink = this.options.onActivity;
+		if (!sink) return [];
+		try {
+			return ACTIVITY_EVENTS.map((type) => harness.events.on(type, (event) => forwardActivity(type, event, sink)));
+		} catch {
+			// The activity stream is cosmetic (the `-v` view): a harness that does
+			// not expose an event registry must not be able to fail a dispatch. Only
+			// the gate decides anything.
+			return [];
 		}
 	}
 
@@ -157,6 +219,89 @@ export class PiAgent implements Agent {
 }
 
 /**
+ * Ask the harness to stop the in-flight run. 0.84's `abort()` is Result-typed:
+ * a rejection (`NoActiveOperation`, `Closed`) only says there was nothing left
+ * to abort — the exact race a caller-side signal can lose — so it is benign and
+ * not escalated. What ends the dispatch is the run's own outcome, which
+ * {@link completedMessage} turns into a thrown failure.
+ */
+async function requestAbort(harness: Harness): Promise<void> {
+	try {
+		await harness.abort();
+	} catch {
+		// The harness is closed or faulted; the prompt's outcome carries the failure.
+	}
+}
+
+/** Release the dispatch's harness (one per dispatch). Teardown must never mask the dispatch's own result. */
+async function releaseHarness(harness: Harness): Promise<void> {
+	try {
+		await harness.close();
+	} catch {
+		// Nothing left to do: this harness is per-dispatch and is being dropped.
+	}
+}
+
+/**
+ * The one success path out of a 0.84 run: a `completed` outcome's final
+ * assistant message. Every other outcome (`declined`, `aborted`, `failed`,
+ * `suspended`) and every rejected Result throws, so a dispatch surfaces as a
+ * failed attempt instead of a silent success. The gate is the sole authority on
+ * "done" — a half-finished run must never be able to fake progress.
+ */
+function completedMessage(result: RunResult): AssistantMessage {
+	if (!result.ok) {
+		throw new Error(`anvil: the harness rejected the dispatch (${result.error._tag}): ${result.error.message}`, {
+			cause: result.error,
+		});
+	}
+	const outcome = result.value;
+	if (outcome.kind === "completed") return outcome.finalMessage;
+	throw new Error(`anvil: the agent run did not complete (${describeOutcome(outcome)}).`);
+}
+
+function describeOutcome(outcome: Exclude<RunOutcome, { kind: "completed" }>): string {
+	if (outcome.kind !== "failed") return outcome.kind;
+	return `failed: [${outcome.error.code}] ${outcome.error.message}`;
+}
+
+/**
+ * The harness event types anvil forwards as activity. pi 0.84 retired the typed
+ * `AgentHarnessEvent` union and its `subscribe()`; events now arrive through the
+ * untyped `harness.events.on(type, listener)` registry, whose declared type set
+ * (`events.d.ts`) still only covers `run_start`/`run_end`. These names are the
+ * ones the installed package's telemetry schema enumerates for the harness
+ * event stream (`pi.harness.event_handler`, attribute `pi.event.type`).
+ */
+const ACTIVITY_EVENTS = ["tool_start", "tool_end", "message_update"] as const;
+
+type ActivityEvent = (typeof ACTIVITY_EVENTS)[number];
+
+/**
+ * The payload fields anvil reads off those events. Untyped upstream, so the
+ * shapes are taken from what the harness persists and reports for the same
+ * facts — `ToolStartedRecord` (`toolName`, `effectiveArgs`) and the tool span
+ * attributes `pi.tool.name` / `pi.tool.is_error` — and from pi-ai's
+ * `AssistantMessageEvent` for the streamed thinking segment. Read defensively
+ * and pinned by pi-agent.test.ts, so an upstream shape drift shows up as a red
+ * test rather than a silently muted activity stream.
+ */
+interface ToolStartEvent {
+	toolName?: unknown;
+	args?: unknown;
+	effectiveArgs?: unknown;
+}
+
+interface ToolEndEvent {
+	toolName?: unknown;
+	isError?: unknown;
+}
+
+interface MessageUpdateEvent {
+	assistantMessageEvent?: { type?: unknown; content?: unknown };
+}
+
+/**
  * Translate a pi harness event into an anvil {@link AgentActivity}, forwarding
  * tool-call lifecycle and the reasoning trace to the sink. The sink (the
  * surface) decides which kinds to render — reasoning is gated behind an opt-in,
@@ -165,19 +310,25 @@ export class PiAgent implements Agent {
  * token deltas: an append-only stream reads cleaner as whole thoughts. Text and
  * turn lifecycle remain ignored.
  */
-function forwardActivity(event: AgentHarnessEvent, sink: AgentEventSink): void {
-	switch (event.type) {
-		case "tool_execution_start":
-			sink({ kind: "tool-start", tool: event.toolName, summary: summarizeToolArgs(event.args) });
+function forwardActivity(type: ActivityEvent, event: unknown, sink: AgentEventSink): void {
+	if (!event || typeof event !== "object") return;
+	switch (type) {
+		case "tool_start": {
+			const { toolName, args, effectiveArgs } = event as ToolStartEvent;
+			if (typeof toolName !== "string") return;
+			sink({ kind: "tool-start", tool: toolName, summary: summarizeToolArgs(args ?? effectiveArgs) });
 			break;
-		case "tool_execution_end":
-			sink({ kind: "tool-end", tool: event.toolName, ok: !event.isError });
+		}
+		case "tool_end": {
+			const { toolName, isError } = event as ToolEndEvent;
+			if (typeof toolName !== "string") return;
+			sink({ kind: "tool-end", tool: toolName, ok: isError !== true });
 			break;
+		}
 		case "message_update": {
-			const inner = event.assistantMessageEvent;
-			if (inner.type === "thinking_end" && inner.content.trim()) {
-				sink({ kind: "reasoning", text: inner.content });
-			}
+			const inner = (event as MessageUpdateEvent).assistantMessageEvent;
+			if (!inner || inner.type !== "thinking_end" || typeof inner.content !== "string") return;
+			if (inner.content.trim()) sink({ kind: "reasoning", text: inner.content });
 			break;
 		}
 	}

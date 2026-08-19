@@ -3,15 +3,21 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model, MutableModels } from "@earendil-works/pi-ai";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StatePersister } from "../src/index.ts";
 import { CommandGate, PiAgent, runToGate, WorktreeWorkspace } from "../src/node/index.ts";
+import { createFakeHarness } from "./support/fake-harness.ts";
 
-// The capstone: the whole engine end-to-end with only the MODEL faked. A real
-// git worktree, the real read/write tools mutating it, the real gate verifying
-// via real shell exec, and a real commit on pass. This is the thesis in one
-// test: define outcome -> agent works -> deterministic gate -> loop.
+// The capstone: the whole engine end-to-end with only the AGENT'S BRAIN faked.
+// A real git worktree, anvil's real read/write tools mutating it (executed by
+// the fake harness, not simulated), the real gate verifying via real shell exec,
+// and a real commit on pass. This is the thesis in one test: define outcome ->
+// agent works -> deterministic gate -> loop.
+//
+// The fake sits at the harness seam rather than at the model: pi 0.84's
+// AgentHarness has a private constructor and does not implement prompt() yet, so
+// there is no real turn to drive. Everything below the harness is still real.
 
 let tmpRoot: string;
 let repoRoot: string;
@@ -45,26 +51,26 @@ afterEach(async () => {
 	await rm(tmpRoot, { recursive: true, force: true });
 });
 
-async function setup(branch: string) {
+async function setup(branch: string, harness: ReturnType<typeof createFakeHarness>) {
 	const ws = await WorktreeWorkspace.create({ repoRoot, branch });
 	const agent = new PiAgent({
 		env: ws.env,
 		resolveModel: () => model,
 		systemPrompt: "test",
 		models,
+		createHarness: harness.factory,
 	});
 	// The gate is satisfied only when answer.txt contains exactly "42".
 	const gate = new CommandGate({ commands: [{ cmd: 'test "$(cat answer.txt 2>/dev/null)" = "42"' }] });
 	return { ws, agent, gate };
 }
 
-describe("runToGate end-to-end (real worktree + tools + gate, faux model)", () => {
+describe("runToGate end-to-end (real worktree + tools + gate, faked harness)", () => {
 	it("the agent edits the worktree until the gate passes, then commits", async () => {
-		const { ws, agent, gate } = await setup("e2e/pass");
-		faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("write", { path: "answer.txt", content: "42" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("done"),
-		]);
+		const harness = createFakeHarness({
+			runs: [{ toolCalls: [{ name: "write", args: { path: "answer.txt", content: "42" } }], text: "done" }],
+		});
+		const { ws, agent, gate } = await setup("e2e/pass", harness);
 		try {
 			const res = await runToGate(
 				{ id: "answer", prompt: "make answer.txt contain 42" },
@@ -81,13 +87,13 @@ describe("runToGate end-to-end (real worktree + tools + gate, faux model)", () =
 	});
 
 	it("loops: a failing first attempt feeds the gate error back, then the second passes", async () => {
-		const { ws, agent, gate } = await setup("e2e/loop");
-		faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("write", { path: "answer.txt", content: "0" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("first attempt"),
-			fauxAssistantMessage([fauxToolCall("write", { path: "answer.txt", content: "42" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("second attempt"),
-		]);
+		const harness = createFakeHarness({
+			runs: [
+				{ toolCalls: [{ name: "write", args: { path: "answer.txt", content: "0" } }], text: "first attempt" },
+				{ toolCalls: [{ name: "write", args: { path: "answer.txt", content: "42" } }], text: "second attempt" },
+			],
+		});
+		const { ws, agent, gate } = await setup("e2e/loop", harness);
 		try {
 			const res = await runToGate(
 				{ id: "answer", prompt: "make answer.txt contain 42" },

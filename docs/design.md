@@ -84,7 +84,7 @@ or filesystem.
 
 | Seam | What | `@anvil/core/node` implementation |
 |------|------|-----------------------------------|
-| `Agent` | runs one complete agentic turn | `PiAgent` → pi-agent-core `AgentHarness.prompt()` |
+| `Agent` | runs one complete agentic turn | `PiAgent` → pi-agent-core `AgentHarness.create()` + `prompt()` |
 | `Workspace` | isolation + command execution | `WorktreeWorkspace` → a pi `ExecutionEnv` on a git worktree |
 | `Gate` | the **sole** authority on "done" | `CommandGate` → detected build/test cmds via `Workspace.exec` |
 | `StatePersister` | one write per transition | in-memory default; SQLite under node |
@@ -119,15 +119,27 @@ Every edge writes a `RunRecord`. Resume = load last record, continue the loop.
 ## 5. Substrate: pi, not the Anthropic SDK
 
 `@anvil/core` depends on **`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`**
-(hard-pinned to `0.78.1` — the spiked version, and >2 days old so it clears the
-`.npmrc` `min-release-age` supply-chain gate), nothing heavier. The decision, on
+(hard-pinned, currently `0.84.2`, and >2 days old so it clears the `.npmrc`
+`min-release-age` supply-chain gate), nothing heavier. The decision, on
 evidence from a spike:
 
 - pi-agent-core's `ExecutionEnv` (`FileSystem & Shell`) **is** anvil's
   `Workspace` — pluggable, structured `exec()` results, and it is the *only*
   node-bound thing (the `.`/`./node` seam is already drawn there).
-- `AgentHarness.prompt() → Promise<AssistantMessage>` **is** anvil's
-  `Agent.dispatch()`.
+- `AgentHarness.prompt()` **is** anvil's `Agent.dispatch()`. As of pi 0.84 the
+  harness constructor is private (`await AgentHarness.create(options)` returns
+  `{ harness, suspended }`; anvil ignores `suspended` — it builds a fresh
+  harness per dispatch and owns resumability in `runToGate`) and `prompt()`
+  returns a `Result<{ runId } & RunOutcome, RunRejected>`. Only the `completed`
+  outcome is a dispatch: its `finalMessage` carries the text/usage, and every
+  other outcome (`declined`/`aborted`/`failed`/`suspended`) or rejected Result
+  throws, so a half-finished run surfaces as a failed attempt instead of faking
+  progress — the gate stays the sole authority on "done". Events arrive through
+  the untyped `harness.events.on(type, listener)` registry (0.83's typed
+  `subscribe()` union is gone); anvil forwards `tool_start` / `tool_end` /
+  `message_update` as anvil `AgentActivity` events. Because 0.84's harness is
+  private and mid-rewrite, `PiAgentOptions.createHarness` is the injected
+  factory seam engine tests fake.
 - pi's `tool_call → {block, reason}` hook is a PreToolUse-equivalent, richer
   than the Anthropic SDK's.
 - **provider-agnostic** (Anthropic / OpenAI / Google / Mistral / Bedrock / …)
@@ -182,16 +194,16 @@ Track A (build — the spine is settled, needs no usage data):
   `.`/`./node` purity boundary is enforced by `test/boundary.test.ts`. `ExecResult`
   carries an `error` field so the gate can tell "ran and failed" from "could not
   run". `PiAgent` (the `Agent` seam over pi's `AgentHarness.prompt()`) has landed,
-  faux-provider tested (no network/key); it is provider-agnostic via an injected
-  `resolveModel` and takes injectable tools. anvil's own read/edit/write/bash
+  tested against a fake of the harness seam (no network/key); it is
+  provider-agnostic via an injected `resolveModel` and takes injectable tools. anvil's own read/edit/write/bash
   tools (over the `ExecutionEnv`, via typebox) have landed: lean and headless
   (no TUI/highlight/image deps), with a contract that matches what coding models
   expect (batch exact-unique-match edit, head/tail truncation) cribbed from pi's
   tools but reimplemented as ours. PiAgent defaults to these, so the worker has
   hands. The whole loop is proven end-to-end in `test/run-to-gate.e2e.test.ts`
-  with only the model faked: a faux response calls the real `write` tool, which
-  mutates a real git worktree, which the real gate verifies via real shell exec,
-  which commits on pass — including the fail-then-retry-then-pass path.
+  with only the agent's brain faked: a scripted run calls the real `write` tool,
+  which mutates a real git worktree, which the real gate verifies via real shell
+  exec, which commits on pass — including the fail-then-retry-then-pass path.
 - **A4** — *Done.* Build anvil's first-class CLI. anvil is forge's **successor**
   (a focused rewrite), not a library forge consumes — `anvil run` covers forge's
   `run <spec>` common case at parity, proven by ported forge tests. Model
