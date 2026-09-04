@@ -7,7 +7,7 @@
 // Seam mapping (see docs/design.md):
 //   WorktreeWorkspace -> a pi ExecutionEnv (NodeExecutionEnv) on a git worktree
 //   CommandGate       -> detected build/test commands run via Workspace.exec
-//   PiAgent           -> pi-agent-core AgentHarness.prompt()
+//   PiAgent           -> pi-agent-core AgentLane.prompt() on a per-session harness
 
 export * from "../index.ts";
 export {
@@ -26,5 +26,12 @@ export {
 	type ModelResolverOptions,
 } from "./model-resolver.ts";
 export { type ModelResolver, PiAgent, type PiAgentOptions } from "./pi-agent.ts";
-export { createBashTool, createEditTool, createReadTool, createWriteTool, defaultTools } from "./tools.ts";
+export {
+	type AnvilTool,
+	createBashTool,
+	createEditTool,
+	createReadTool,
+	createWriteTool,
+	defaultTools,
+} from "./tools.ts";
 export { WorktreeWorkspace, type WorktreeWorkspaceOptions } from "./worktree-workspace.ts";

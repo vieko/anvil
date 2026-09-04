@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createBashTool, createEditTool, createReadTool, createWriteTool, defaultTools } from "../src/node/tools.ts";
@@ -14,16 +15,29 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	await env.cleanup();
+	await env.cleanup(BACKGROUND_CONTEXT);
 	await rm(dir, { recursive: true, force: true });
 });
 
+// pi 0.85 tools are harness-native: execute(toolCallId, params, onUpdate,
+// toolContext, invocation, context). Cancellation rides on the Context.
 function run(tool: any, params: any, signal?: AbortSignal): Promise<string> {
+	const context = signal ? withAbortSignal(signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT;
 	return tool
-		.execute("id", params, signal)
+		.execute("id", params, () => {}, undefined, fauxInvocation(), context)
 		.then((r: { content: { type: string; text?: string }[] }) =>
 			r.content.map((c) => (c.type === "text" ? c.text : "")).join(""),
 		);
+}
+
+function fauxInvocation() {
+	return {
+		invocationId: "inv",
+		operationId: "op",
+		turnId: "turn",
+		getMemo: async () => undefined,
+		setMemo: async () => {},
+	};
 }
 
 describe("read tool", () => {

@@ -1,8 +1,14 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { builtinModels, getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { describe, expect, it } from "vitest";
 import { buildEscalationLadder, EFFORT_LADDER } from "../src/index.ts";
-import { createModelResolver, createSupportedEfforts, DEFAULT_MODEL_ALIASES } from "../src/node/model-resolver.ts";
+import {
+	createModelResolver,
+	createSupportedEfforts,
+	DEFAULT_MODEL_ALIASES,
+	withGatewayCompatModels,
+} from "../src/node/model-resolver.ts";
 
 describe("createModelResolver", () => {
 	it("defaults to the Vercel AI Gateway for the logical aliases", () => {
@@ -14,7 +20,8 @@ describe("createModelResolver", () => {
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
 		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-5.6-luna");
 		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-5.6-terra");
-		expect(resolve({ model: "glm" }).id).toBe("zai/glm-5.2");
+		expect(resolve({ model: "glm" }).id).toBe("zai/glm-5.3");
+		expect(resolve({ model: "fable" }).id).toBe("anthropic/claude-fable-5.1");
 	});
 
 	it("every DEFAULT_WEAK_TIER-anticipated alias resolves (terra/glm gap closed)", () => {
@@ -27,13 +34,50 @@ describe("createModelResolver", () => {
 	it("resolves claude-opus-5 from pi-ai's builtin catalog (bridge retired in #33)", () => {
 		const resolve = createModelResolver();
 		const opus5 = resolve({ model: "vercel-ai-gateway:anthropic/claude-opus-5" });
+		const fable = resolve({ model: "vercel-ai-gateway:anthropic/claude-fable-5.1" });
+		expect(fable.compat).toMatchObject({
+			vercelGatewayRouting: { order: ["anthropic"] },
+			supportsMidConvoEffort: true,
+		});
+		// The overlay is a shallow merge: the registry's own compat (load-bearing --
+		// adaptive thinking, and Opus 4.7+ rejecting a temperature) must survive it.
+		expect(opus5.compat).toMatchObject({ forceAdaptiveThinking: true, supportsTemperature: false });
+		expect(fable.compat).toMatchObject({ forceAdaptiveThinking: true });
 		expect(opus5.id).toBe("anthropic/claude-opus-5");
 		expect(opus5.name).toBe("Claude Opus 5");
+		expect(opus5.compat).toMatchObject({
+			vercelGatewayRouting: { order: ["anthropic"] },
+			supportsMidConvoEffort: true,
+		});
 		// Pin the gateway terms the escalation ladder prices against
 		// (verified against the gateway remote catalog: 1M context, $5/$25).
 		expect(opus5.cost).toMatchObject({ input: 5, output: 25 });
 		expect(opus5.contextWindow).toBe(1_000_000);
 		expect(opus5.provider).toBe("vercel-ai-gateway");
+	});
+
+	it("applies gateway overlays only to Anthropic models", () => {
+		const resolve = createModelResolver();
+		const sonnet = resolve({ model: "vercel-ai-gateway:anthropic/claude-sonnet-5" });
+		expect(sonnet.compat).toMatchObject({ vercelGatewayRouting: { order: ["anthropic"] } });
+		expect(sonnet.compat).not.toHaveProperty("supportsMidConvoEffort");
+		const luna = resolve({ model: "vercel-ai-gateway:openai/gpt-5.6-luna" });
+		expect(luna.compat).toBeUndefined();
+	});
+
+	it("clones gateway registry models without mutating them", () => {
+		const resolve = createModelResolver();
+		const first = resolve({ model: "vercel-ai-gateway:anthropic/claude-opus-5" });
+		const second = resolve({ model: "vercel-ai-gateway:anthropic/claude-opus-5" });
+		const registry = getBuiltinModel("vercel-ai-gateway", "anthropic/claude-opus-5");
+		expect(first).toBe(second);
+		expect(first).not.toBe(registry);
+		// The shared registry object itself never grows anvil's overlay.
+		expect(registry.compat).not.toHaveProperty("supportsMidConvoEffort");
+		expect(registry.compat).not.toHaveProperty("vercelGatewayRouting");
+		// A concrete alias is returned untouched, unlike a registry lookup.
+		const concrete = { id: "x", provider: "vercel-ai-gateway" } as unknown as Model<any>;
+		expect(createModelResolver({ aliases: { concrete } })({ model: "concrete" })).toBe(concrete);
 	});
 
 	it("resolves the sonnet alias to anthropic/claude-sonnet-5", () => {
@@ -96,6 +140,36 @@ describe("createModelResolver", () => {
 			expect(() => resolve(rung)).not.toThrow();
 		}
 		expect(DEFAULT_MODEL_ALIASES.sonnet).toContain("claude-sonnet");
+	});
+});
+
+describe("withGatewayCompatModels", () => {
+	// pi's harness keeps only a { provider, modelId } identity and re-resolves
+	// every request (and every mid-run setModel) through the Models collection, so
+	// the overlay has to be visible here too or it never reaches the provider.
+	const models = withGatewayCompatModels(builtinModels());
+
+	it("overlays gateway Claude models resolved by identity", () => {
+		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]) {
+			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
+				vercelGatewayRouting: { order: ["anthropic"] },
+				supportsMidConvoEffort: true,
+			});
+		}
+		const sonnet = models.getModel("vercel-ai-gateway", "anthropic/claude-sonnet-5");
+		expect(sonnet?.compat).toMatchObject({ vercelGatewayRouting: { order: ["anthropic"] } });
+		expect(sonnet?.compat).not.toHaveProperty("supportsMidConvoEffort");
+	});
+
+	it("leaves other providers, unknown ids, and the rest of the collection alone", () => {
+		expect(models.getModel("vercel-ai-gateway", "openai/gpt-5.6-luna")?.compat).toBeUndefined();
+		expect(models.getModel("anthropic", "claude-opus-4-5")?.compat).toEqual(
+			builtinModels().getModel("anthropic", "claude-opus-4-5")?.compat,
+		);
+		expect(models.getModel("vercel-ai-gateway", "nope-9000")).toBeUndefined();
+		// Delegation stays intact for everything the harness also uses.
+		expect(models.getProviders().length).toBe(builtinModels().getProviders().length);
+		expect(models.getModels("vercel-ai-gateway").length).toBe(builtinModels().getModels("vercel-ai-gateway").length);
 	});
 });
 

@@ -84,7 +84,7 @@ or filesystem.
 
 | Seam | What | `@anvil/core/node` implementation |
 |------|------|-----------------------------------|
-| `Agent` | runs one complete agentic turn | `PiAgent` → pi-agent-core `AgentHarness.prompt()` |
+| `Agent` | runs one complete agentic turn | `PiAgent` → pi-agent-core `AgentLane.prompt()` |
 | `Workspace` | isolation + command execution | `WorktreeWorkspace` → a pi `ExecutionEnv` on a git worktree |
 | `Gate` | the **sole** authority on "done" | `CommandGate` → detected build/test cmds via `Workspace.exec` |
 | `StatePersister` | one write per transition | in-memory default; SQLite under node |

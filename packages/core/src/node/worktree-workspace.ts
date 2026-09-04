@@ -1,8 +1,10 @@
 import { cp, glob, mkdir, rm, symlink } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import type { ShellOutputLimits } from "@earendil-works/pi-agent-core";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { ExecOptions, ExecResult, Workspace } from "../index.ts";
 import { detectPackageManager, type PackageManager } from "./command-gate.ts";
+import { contextFor, execCaptured } from "./pi-exec.ts";
 
 export interface WorktreeWorkspaceOptions {
 	/** Repository to branch from (its root). */
@@ -46,6 +48,12 @@ export interface WorktreeWorkspaceOptions {
 	 */
 	scopeGlobs?: string[];
 }
+
+// pi 0.85 bounds shell output at the source, so a workspace command must name a
+// cap. This one sits far above the gate's own 10KB feedback cut and any
+// plausible `git status`/`git diff` listing, so the gate and the git bookkeeping
+// keep seeing complete output in practice.
+const OUTPUT_LIMITS: ShellOutputLimits = { maxBytes: 8 * 1024 * 1024, maxLines: 200_000, retain: "tail" };
 
 // Committer identity so commits never fail in a temp repo with no global git
 // identity configured. Overridable by the repo's own config when present.
@@ -105,18 +113,17 @@ export class WorktreeWorkspace implements Workspace {
 		const baseRef = opts.baseRef ?? "HEAD";
 
 		const provision = new NodeExecutionEnv({ cwd: repoRoot, shellPath: opts.shellPath });
+		const context = contextFor();
 		try {
-			await provision.createDir(dirname(worktreePath), { recursive: true });
+			await provision.createDir(dirname(worktreePath), { recursive: true }, context);
 			const add = `git worktree add -b ${shellQuote(opts.branch)} ${shellQuote(worktreePath)} ${shellQuote(baseRef)}`;
-			const res = await provision.exec(add);
+			const res = await execCaptured(provision, add, { limits: OUTPUT_LIMITS }, context);
 			if (!res.ok) throw new Error(`anvil: could not run git worktree add: ${res.error.message}`);
 			if (res.value.exitCode !== 0) {
-				throw new Error(
-					`anvil: git worktree add failed (exit ${res.value.exitCode}): ${res.value.stderr || res.value.stdout}`,
-				);
+				throw new Error(`anvil: git worktree add failed (exit ${res.value.exitCode}): ${res.value.output}`);
 			}
 		} finally {
-			await provision.cleanup();
+			await provision.cleanup(context);
 		}
 
 		const env = new NodeExecutionEnv({ cwd: worktreePath, shellPath: opts.shellPath });
@@ -161,26 +168,35 @@ export class WorktreeWorkspace implements Workspace {
 
 	async exec(command: string, opts?: ExecOptions): Promise<ExecResult> {
 		const timeoutMs = opts?.timeoutMs ?? this.defaultTimeoutMs;
-		const res = await this.env.exec(command, {
-			env: { ...this.defaultEnv, ...opts?.env },
-			// pi's timeout is in whole seconds; floor sub-second timeouts to 1s.
-			timeout: timeoutMs === undefined ? undefined : Math.max(1, Math.ceil(timeoutMs / 1000)),
-			abortSignal: opts?.signal,
-		});
+		const res = await execCaptured(
+			this.env,
+			command,
+			{
+				env: { ...this.defaultEnv, ...opts?.env },
+				// pi's timeout is in whole seconds; floor sub-second timeouts to 1s.
+				...(timeoutMs === undefined ? {} : { timeout: Math.max(1, Math.ceil(timeoutMs / 1000)) }),
+				limits: OUTPUT_LIMITS,
+			},
+			contextFor(opts?.signal),
+		);
 		if (res.ok) {
-			return { stdout: res.value.stdout, stderr: res.value.stderr, exitCode: res.value.exitCode };
+			// pi 0.85 merges the child's stdout and stderr into one ordered view, so
+			// the combined text lands in `stdout` and `stderr` stays empty. Every
+			// anvil consumer reads them as `stderr || stdout`, so the text a failing
+			// command reports is unchanged.
+			return { stdout: res.value.output, stderr: "", exitCode: res.value.exitCode };
 		}
 		// The command could not be run to completion (timeout/spawn/abort/...).
 		return { stdout: "", stderr: res.error.message, exitCode: -1, error: res.error.code };
 	}
 
 	async readText(path: string): Promise<string | null> {
-		const res = await this.env.readTextFile(path);
+		const res = await this.env.readTextFile(path, contextFor());
 		return res.ok ? res.value : null;
 	}
 
 	async exists(path: string): Promise<boolean> {
-		const res = await this.env.exists(path);
+		const res = await this.env.exists(path, contextFor());
 		return res.ok ? res.value : false;
 	}
 
@@ -250,12 +266,13 @@ export class WorktreeWorkspace implements Workspace {
 	async cleanup(): Promise<void> {
 		if (this.removed) return;
 		this.removed = true;
-		await this.env.cleanup();
+		const context = contextFor();
+		await this.env.cleanup(context);
 		const env = new NodeExecutionEnv({ cwd: this.repoRoot, shellPath: this.shellPath });
 		try {
-			await env.exec(`git worktree remove --force ${shellQuote(this.cwd)}`);
+			await env.exec(`git worktree remove --force ${shellQuote(this.cwd)}`, undefined, context);
 		} finally {
-			await env.cleanup();
+			await env.cleanup(context);
 		}
 	}
 }

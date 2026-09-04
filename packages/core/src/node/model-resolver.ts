@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import { EFFORT_LADDER, type Effort, type SupportedEfforts } from "../index.ts";
@@ -34,11 +34,10 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	haiku: "vercel-ai-gateway:anthropic/claude-haiku-4.5",
 	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-5",
 	opus: "vercel-ai-gateway:anthropic/claude-opus-5",
+	fable: "vercel-ai-gateway:anthropic/claude-fable-5.1",
 	luna: "vercel-ai-gateway:openai/gpt-5.6-luna",
 	terra: "vercel-ai-gateway:openai/gpt-5.6-terra",
-	// glm tracks the newest GLM generation pi-ai's registry knows; bump to 5.3+
-	// when the upstream registry ships it.
-	glm: "vercel-ai-gateway:zai/glm-5.2",
+	glm: "vercel-ai-gateway:zai/glm-5.3",
 };
 
 /**
@@ -78,15 +77,71 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 		const provider = spec.slice(0, sep);
 		const id = spec.slice(sep + 1);
 		const model = lookupModel(provider, id);
-		if (model) return model;
+		if (model) return withGatewayCompat(model);
 		throw new Error(`anvil: unknown model "${spec}". ${hint(name)}`);
 	}
 
 	const direct = lookupModel(defaultProvider, spec);
-	if (direct) return direct;
+	if (direct) return withGatewayCompat(direct);
 	const found = findById(spec);
-	if (found) return found;
+	if (found) return withGatewayCompat(found);
 	throw new Error(`anvil: could not resolve model "${name}". ${hint(name)}`);
+}
+
+/** Models that verify per-turn effort changes through the gateway (see {@link withGatewayCompat}). */
+const MID_CONVO_EFFORT_MODELS = new Set(["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]);
+
+/**
+ * anvil-owned compat overlay for Claude on the Vercel AI Gateway, as a clone so
+ * the shared registry object is never mutated.
+ *
+ * Every `anthropic/*` model is pinned to Anthropic's own Messages transport:
+ * the beta headers the overlay below depends on are not guaranteed on the
+ * gateway's Bedrock/Vertex routes. Opus 5 and Fable 5.1 additionally get
+ * `supportsMidConvoEffort`, which is what makes the escalation ladder's
+ * effort climb safe on one resumed session (per-turn effort persisted,
+ * effort-only system messages rebuilt on replay, stale signed-thinking
+ * prefixes dropped instead of 400ing). pi-ai's catalog enables it only for the
+ * native `anthropic` provider, so anvil owns it for the gateway route.
+ */
+export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TModel {
+	if (model.provider !== "vercel-ai-gateway" || !model.id.startsWith("anthropic/")) return model;
+	return {
+		...model,
+		// Cast: `Model<any>["compat"]` collapses to `never` for an unresolved api.
+		compat: {
+			...model.compat,
+			vercelGatewayRouting: { order: ["anthropic"] },
+			...(MID_CONVO_EFFORT_MODELS.has(model.id) ? { supportsMidConvoEffort: true } : {}),
+		} as TModel["compat"],
+	};
+}
+
+/**
+ * The same overlay, applied wherever **pi** resolves a model. The harness keeps
+ * only a `{ provider, modelId }` identity and re-resolves every request (and
+ * every `setModel`) through this collection, so a resolver-only overlay would
+ * never reach the provider: this view is what actually carries
+ * {@link withGatewayCompat} into the request.
+ */
+export function withGatewayCompatModels(models: Models): Models {
+	return new Proxy(models, {
+		get(target, property) {
+			if (property === "getModel") {
+				return (provider: string, id: string): Model<Api> | undefined => {
+					const model = target.getModel(provider, id);
+					return model === undefined ? undefined : withGatewayCompat(model);
+				};
+			}
+			if (property === "getModels") {
+				return (provider?: string): readonly Model<Api>[] => target.getModels(provider).map(withGatewayCompat);
+			}
+			// Bind to the target, never the proxy: these collections hold private
+			// state that a rebound `this` cannot reach.
+			const value = Reflect.get(target, property, target);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
 }
 
 function findById(id: string): Model<any> | undefined {
