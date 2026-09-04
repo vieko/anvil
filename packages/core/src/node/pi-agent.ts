@@ -1,19 +1,20 @@
-import type { AgentHarnessEvent, AgentTool, ExecutionEnv, Session, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { AgentHarness, InMemorySessionRepo, JsonlSessionRepo } from "@earendil-works/pi-agent-core";
+import type {
+	AgentLane,
+	Context,
+	ExecutionEnv,
+	OperationResultRecord,
+	RunResult,
+	Session,
+	ThinkingLevel,
+} from "@earendil-works/pi-agent-core";
+import { AgentHarness, JsonlSessionRepo, MemorySessionRepo } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model, Models, RetryPolicy } from "@earendil-works/pi-ai";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import type {
-	Agent,
-	AgentActivity,
-	AgentDispatch,
-	AgentEventSink,
-	AgentResult,
-	Effort,
-	ModelEffort,
-} from "../index.ts";
-import { createModelResolver } from "./model-resolver.ts";
-import { defaultTools } from "./tools.ts";
+import type { Agent, AgentDispatch, AgentEventSink, AgentResult, Effort, ModelEffort } from "../index.ts";
+import { createModelResolver, withGatewayCompatModels } from "./model-resolver.ts";
+import { contextFor } from "./pi-exec.ts";
+import { type AnvilTool, defaultTools } from "./tools.ts";
 
 /** Resolve anvil's (model, effort) to a concrete pi-ai Model. The provider-agnostic seam. */
 export type ModelResolver = (config: ModelEffort) => Model<any>;
@@ -24,7 +25,7 @@ export interface PiAgentOptions {
 	/** Map anvil's (model, effort) to a pi-ai Model. Default: {@link createModelResolver}(). */
 	resolveModel?: ModelResolver;
 	/** Tools the agent may call. Default: anvil's read/edit/write/bash over `env`. Pass `[]` to disable. */
-	tools?: AgentTool[];
+	tools?: AnvilTool[];
 	/** System prompt. Default: a minimal outcome-focused prompt. */
 	systemPrompt?: string;
 	/**
@@ -65,44 +66,64 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = { enabled: true, maxRetries: 3,
 const DEFAULT_SYSTEM_PROMPT =
 	"You are an autonomous engineer. Achieve the requested outcome by editing files and running commands. " +
 	"Verification is performed independently after you finish, so make the change real and correct — do not " +
-	"fake, skip, or work around checks.";
+	"fake, skip, or work around checks. Repository policy configuration is part of the outcome, not an obstacle: " +
+	"never bypass it (e.g. .npmrc release-age cooldowns or registry settings, lockfile constraints, lint/type " +
+	"ignores, git hooks). If a policy blocks the outcome, stop and report the blocker instead.";
+
+/** The lane every anvil dispatch runs on. One conversation per session. */
+const LANE = "main";
+
+/**
+ * One session's live harness. pi 0.85's `harness.close()` also closes the
+ * session, so a resumable transcript keeps its harness for the whole run
+ * instead of rebuilding one per dispatch; per-attempt model/effort changes go
+ * through the lane's own setters (which is what makes the escalation ladder a
+ * mid-conversation effort change rather than a new conversation).
+ */
+interface SessionRuntime {
+	session: Session;
+	harness: AgentHarness<undefined>;
+	lane: AgentLane;
+}
 
 /**
  * The {@link Agent} seam, backed by pi-agent-core's `AgentHarness`.
  *
  * One `dispatch` == one complete agentic turn (the harness runs tool use until
- * the model stops), after which anvil's gate verifies the result. PiAgent owns
- * none of the verify/retry policy — that is `runToGate`'s job. It is
- * provider-agnostic: the caller supplies `resolveModel`, so the same engine can
- * run the cheapest capable model and escalate across providers.
+ * the model stops), after which anvil's gate verifies the result. Only a run
+ * that reaches the `completed` status counts as work done. PiAgent owns none of
+ * the verify/retry policy — that is `runToGate`'s job. It is provider-agnostic:
+ * the caller supplies `resolveModel`, so the same engine can run the cheapest
+ * capable model and escalate across providers.
  */
 export class PiAgent implements Agent {
 	private readonly options: PiAgentOptions;
 	private readonly resolveModel: ModelResolver;
 	private readonly models: Models;
-	private readonly createSession: () => Promise<Session>;
+	private readonly createSession: (context: Context) => Promise<Session>;
 	/** Sessions created by this agent, so a `resume` continues the same transcript. */
-	private readonly sessions = new Map<string, Session>();
+	private readonly runtimes = new Map<string, SessionRuntime>();
 
 	constructor(options: PiAgentOptions) {
 		this.options = options;
 		this.resolveModel = options.resolveModel ?? createModelResolver();
-		this.models = options.models ?? builtinModels();
+		// The harness re-resolves every request through this collection (it keeps
+		// only a model identity), so anvil's gateway compat overlay has to live here
+		// to reach the provider at all -- including after a mid-run `setModel`.
+		this.models = withGatewayCompatModels(options.models ?? builtinModels());
 		if (options.sessionsRoot) {
-			const repo = new JsonlSessionRepo({ fs: options.env, sessionsRoot: options.sessionsRoot });
+			const repo = new JsonlSessionRepo({ fileSystem: options.env, sessionsRoot: options.sessionsRoot });
 			const cwd = options.sessionCwd ?? ".";
-			this.createSession = () => repo.create({ cwd });
+			this.createSession = (context) => repo.create({ cwd }, context);
 		} else {
-			const repo = new InMemorySessionRepo();
-			this.createSession = () => repo.create({});
+			const repo = new MemorySessionRepo();
+			this.createSession = (context) => repo.create({}, context);
 		}
 	}
 
 	async dispatch(d: AgentDispatch): Promise<AgentResult> {
+		const context = contextFor();
 		const model = this.resolveModel(d.config);
-		const session = await this.resolveSession(d.resume);
-		const sessionId = (await session.getMetadata()).id;
-		this.sessions.set(sessionId, session);
 
 		// Clamp the requested thinking level to what the resolved model verifies
 		// (pi-ai catalog metadata): the correctness layer of issue #31 -- anvil
@@ -111,27 +132,29 @@ export class PiAgent implements Agent {
 		const requested = (this.options.thinkingLevel ?? defaultThinkingLevel)(d.config.effort);
 		const thinkingLevel = requested === undefined ? undefined : clampThinkingLevel(model, requested);
 
-		const harness = new AgentHarness({
-			session,
-			models: this.models,
-			model,
-			tools: this.options.tools ?? defaultTools(this.options.env, bashEnvFor(d)),
-			systemPrompt: this.options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-			thinkingLevel,
-			retry: this.options.retry ?? DEFAULT_RETRY_POLICY,
-		});
+		const tools = this.options.tools ?? defaultTools(this.options.env, bashEnvFor(d));
+		const runtime = await this.resolveRuntime(d, { model, thinkingLevel, tools }, context);
+		const sessionId = runtime.session.metadata.id;
 
-		const onAbort = () => void harness.abort();
+		const onAbort = () => void requestAbort(runtime.lane, context);
 		if (d.signal) {
-			if (d.signal.aborted) await harness.abort();
+			if (d.signal.aborted) await requestAbort(runtime.lane, context);
 			else d.signal.addEventListener("abort", onAbort, { once: true });
 		}
 
-		const sink = this.options.onActivity;
-		const unsubscribe = sink ? harness.subscribe((event) => forwardActivity(event, sink)) : undefined;
+		// The run's own final assistant message, captured from the turn stream:
+		// 0.85's terminal record carries status and tip ids, not the message.
+		let finalMessage: AssistantMessage | undefined;
+		const unsubscribe = [
+			runtime.harness.events.on("turn_end", (event) => {
+				finalMessage = event.message;
+			}),
+			...this.subscribeActivity(runtime),
+		];
 
 		try {
-			const message = await harness.prompt(d.prompt);
+			const record = completedRecord(await runtime.lane.prompt(d.prompt, undefined, context));
+			const message = finalMessage ?? (await tipAssistantMessage(runtime.session, record, context));
 			return {
 				text: extractText(message),
 				usage: {
@@ -143,44 +166,130 @@ export class PiAgent implements Agent {
 			};
 		} finally {
 			d.signal?.removeEventListener("abort", onAbort);
-			unsubscribe?.();
+			for (const off of unsubscribe) off();
 		}
 	}
 
-	private async resolveSession(resume?: string): Promise<Session> {
-		if (resume) {
-			const existing = this.sessions.get(resume);
-			if (existing) return existing;
+	/**
+	 * The session + harness this dispatch runs on: the resumed one when
+	 * `resume` names a session this agent owns, otherwise a fresh one. A resumed
+	 * runtime is re-pointed at this attempt's model, effort, and tools (the bash
+	 * tool carries the attempt number), so the escalation ladder climbs inside
+	 * one conversation.
+	 */
+	private async resolveRuntime(
+		d: AgentDispatch,
+		config: { model: Model<any>; thinkingLevel: ThinkingLevel | undefined; tools: AnvilTool[] },
+		context: Context,
+	): Promise<SessionRuntime> {
+		const existing = d.resume ? this.runtimes.get(d.resume) : undefined;
+		if (existing) {
+			await existing.harness.setTools(config.tools, context);
+			const current = await existing.lane.getModel(context);
+			if (!sameModel(current, config.model)) {
+				await existing.lane.setModel({ provider: config.model.provider, modelId: config.model.id }, context);
+			}
+			if (config.thinkingLevel !== undefined) {
+				await existing.lane.setThinkingLevel(config.thinkingLevel, context);
+			}
+			return existing;
 		}
-		return this.createSession();
+
+		const session = await this.createSession(context);
+		const { harness } = await AgentHarness.create<undefined>(
+			{
+				session,
+				models: this.models,
+				model: config.model,
+				tools: config.tools,
+				systemPrompt: this.options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+				...(config.thinkingLevel === undefined ? {} : { thinkingLevel: config.thinkingLevel }),
+				retry: this.options.retry ?? DEFAULT_RETRY_POLICY,
+			},
+			context,
+		);
+		const runtime: SessionRuntime = { session, harness, lane: await harness.lane(LANE, context) };
+		this.runtimes.set(session.metadata.id, runtime);
+		return runtime;
+	}
+
+	/** Wire the activity sink (when there is one) to the harness's event registry. Returns the unsubscribes. */
+	private subscribeActivity(runtime: SessionRuntime): (() => void)[] {
+		const sink = this.options.onActivity;
+		if (!sink) return [];
+		return [
+			runtime.harness.events.on("tool_start", (event) => {
+				sink({ kind: "tool-start", tool: event.toolName, summary: summarizeToolArgs(event.args) });
+			}),
+			runtime.harness.events.on("tool_end", (event) => {
+				sink({ kind: "tool-end", tool: event.toolName, ok: !event.isError });
+			}),
+			runtime.harness.events.on("message_update", (event) => {
+				// Reasoning is forwarded once per segment, on `thinking_end` (the
+				// complete block), rather than as token deltas: an append-only stream
+				// reads cleaner as whole thoughts.
+				const inner = event.event;
+				if (inner.type === "thinking_end" && inner.content.trim()) {
+					sink({ kind: "reasoning", text: inner.content });
+				}
+			}),
+		];
 	}
 }
 
 /**
- * Translate a pi harness event into an anvil {@link AgentActivity}, forwarding
- * tool-call lifecycle and the reasoning trace to the sink. The sink (the
- * surface) decides which kinds to render — reasoning is gated behind an opt-in,
- * so emitting it here is free when nobody asks for it. Reasoning is forwarded
- * once per segment, on `thinking_end` (the complete block), rather than as
- * token deltas: an append-only stream reads cleaner as whole thoughts. Text and
- * turn lifecycle remain ignored.
+ * Ask the lane to stop the in-flight run. 0.85's `abort()` is Result-typed: a
+ * rejection (`NoActiveOperation`, `Closed`) only says there was nothing left to
+ * abort — the exact race a caller-side signal can lose — so it is benign and not
+ * escalated. What ends the dispatch is the run's own terminal status, which
+ * {@link completedRecord} turns into a thrown failure.
  */
-function forwardActivity(event: AgentHarnessEvent, sink: AgentEventSink): void {
-	switch (event.type) {
-		case "tool_execution_start":
-			sink({ kind: "tool-start", tool: event.toolName, summary: summarizeToolArgs(event.args) });
-			break;
-		case "tool_execution_end":
-			sink({ kind: "tool-end", tool: event.toolName, ok: !event.isError });
-			break;
-		case "message_update": {
-			const inner = event.assistantMessageEvent;
-			if (inner.type === "thinking_end" && inner.content.trim()) {
-				sink({ kind: "reasoning", text: inner.content });
-			}
-			break;
-		}
+async function requestAbort(lane: AgentLane, context: Context): Promise<void> {
+	try {
+		await lane.abort(context);
+	} catch {
+		// The harness is closed or faulted; the run's own record carries the failure.
 	}
+}
+
+/**
+ * The one success path out of a 0.85 run: a `completed` terminal record. Every
+ * other status (`declined`, `aborted`, `failed`), a suspended run, and every
+ * rejected Result throws, so a dispatch surfaces as a failed attempt instead of
+ * a silent success. The gate is the sole authority on "done" — a half-finished
+ * run must never be able to fake progress.
+ */
+function completedRecord(result: RunResult): OperationResultRecord {
+	if (!result.ok) {
+		throw new Error(`anvil: the harness rejected the dispatch: ${result.error.message}`, { cause: result.error });
+	}
+	const outcome = result.value;
+	if (!("status" in outcome)) throw new Error("anvil: the agent run did not complete (no terminal record).");
+	if (outcome.status === "suspended") throw new Error("anvil: the agent run suspended instead of completing.");
+	if (outcome.status === "completed") return outcome;
+	const detail = outcome.error ? `: [${outcome.error.code}] ${outcome.error.message}` : "";
+	throw new Error(`anvil: the agent run did not complete (${outcome.status}${detail}).`);
+}
+
+/**
+ * Fallback for the run's final assistant message: read the tip entry the
+ * terminal record points at. Only used when the turn stream produced nothing
+ * (no turn ran), so a completed-but-silent run still fails loudly rather than
+ * reporting empty work.
+ */
+async function tipAssistantMessage(
+	session: Session,
+	record: OperationResultRecord,
+	context: Context,
+): Promise<AssistantMessage> {
+	const entry = record.tipId === null ? undefined : await session.getEntry(record.tipId, context);
+	if (entry?.type === "message" && entry.message.role === "assistant") return entry.message;
+	throw new Error("anvil: the agent run completed without a final assistant message.");
+}
+
+/** Whether the lane is already pointed at this model (provider + id). */
+function sameModel(current: Model<any> | undefined, next: Model<any>): boolean {
+	return current?.provider === next.provider && current?.id === next.id;
 }
 
 /** A one-line summary of a tool call: the command (bash) or the path (read/edit/write). */

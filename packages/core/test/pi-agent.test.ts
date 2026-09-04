@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { Model, MutableModels, RetryPolicy } from "@earendil-works/pi-ai";
 import {
@@ -16,22 +17,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentActivity, ModelEffort } from "../src/index.ts";
 import { DEFAULT_RETRY_POLICY, PiAgent } from "../src/node/pi-agent.ts";
 
-// Captured by the `AgentHarness` spy installed below, so retry/thinking tests
-// can assert on the options PiAgent actually hands to the harness.
+// Captured by the `AgentHarness.create` spy installed below, so retry/thinking
+// tests can assert on the options PiAgent actually hands to the harness. pi 0.85
+// builds harnesses through an async factory (the constructor is private), so the
+// spy wraps `create` instead of subclassing.
 let capturedRetry: RetryPolicy | undefined;
 let capturedThinkingLevel: ThinkingLevel | undefined;
 
 vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
-	class SpyAgentHarness extends actual.AgentHarness {
-		// Generic pass-through: AgentHarness's constructor generics can't be named here, so accept loosely and forward.
-		constructor(options: any) {
-			capturedRetry = options.retry;
-			capturedThinkingLevel = options.thinkingLevel;
-			super(options);
-		}
-	}
-	return { ...actual, AgentHarness: SpyAgentHarness };
+	return {
+		...actual,
+		AgentHarness: {
+			...actual.AgentHarness,
+			create: (options: any, context: any) => {
+				capturedRetry = options.retry;
+				capturedThinkingLevel = options.thinkingLevel;
+				return actual.AgentHarness.create(options, context);
+			},
+		},
+	};
 });
 
 // Drives the real AgentHarness against pi-ai's faux provider — no network, no
@@ -56,7 +61,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	await env.cleanup();
+	await env.cleanup(BACKGROUND_CONTEXT);
 });
 
 describe("PiAgent.dispatch", () => {
@@ -101,6 +106,63 @@ describe("PiAgent.dispatch", () => {
 		const second = await agent.dispatch({ prompt: "p2", config: { model: "m" }, resume: first.sessionId });
 
 		expect(second.sessionId).toBe(first.sessionId);
+	});
+
+	it("changes reasoning effort mid-conversation on the resumed session (per-turn effort, one harness)", async () => {
+		// What the escalation ladder does: same session, climbing effort. pi 0.85
+		// keeps one harness per session (closing it would close the session), so the
+		// climb has to land on the lane -- assert the level the provider actually saw
+		// on each turn.
+		const levels: (string | undefined)[] = [];
+		const reply = (text: string) => (_ctx: unknown, options: { reasoning?: string } | undefined) => {
+			levels.push(options?.reasoning);
+			return fauxAssistantMessage(text);
+		};
+		const capable = { ...model, reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" } } as Model<string>;
+		faux.setResponses([reply("first"), reply("second")]);
+		const agent = new PiAgent({ env, models, resolveModel: () => capable, systemPrompt: "test" });
+
+		const first = await agent.dispatch({ prompt: "p1", config: { model: "opus", effort: "high" } });
+		const second = await agent.dispatch({
+			prompt: "p2",
+			config: { model: "opus", effort: "max" },
+			resume: first.sessionId,
+		});
+
+		expect(second.sessionId).toBe(first.sessionId);
+		expect(levels).toEqual(["high", "max"]);
+		expect(second.text).toBe("second");
+	});
+
+	it("carries anvil's gateway compat overlay into the request the provider receives", async () => {
+		// The harness stores only a { provider, modelId } identity and re-resolves
+		// each request from the Models collection, so this is the pin that the
+		// mid-convo-effort overlay survives that round trip instead of being dropped.
+		const gateway = fauxProvider({
+			provider: "vercel-ai-gateway",
+			models: [{ id: "anthropic/claude-opus-5" }],
+		});
+		const gatewayModels = createModels();
+		gatewayModels.setProvider(gateway.provider);
+		const seen: unknown[] = [];
+		gateway.setResponses([
+			(_ctx, _options, _state, requestModel) => {
+				seen.push(requestModel.compat);
+				return fauxAssistantMessage("done");
+			},
+		]);
+		const agent = new PiAgent({
+			env,
+			models: gatewayModels,
+			resolveModel: () => gateway.getModel("anthropic/claude-opus-5") as Model<string>,
+			systemPrompt: "test",
+		});
+
+		await agent.dispatch({ prompt: "go", config: { model: "opus", effort: "high" } });
+
+		expect(seen).toEqual([
+			expect.objectContaining({ supportsMidConvoEffort: true, vercelGatewayRouting: { order: ["anthropic"] } }),
+		]);
 	});
 
 	it("starts a fresh session when not resuming", async () => {
@@ -171,7 +233,7 @@ describe("PiAgent.dispatch", () => {
 			const out = await readFile(join(dir, "out.txt"), "utf8");
 			expect(out).toBe("run-1:1:faux-cheap:high");
 		} finally {
-			await toolEnv.cleanup();
+			await toolEnv.cleanup(BACKGROUND_CONTEXT);
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
@@ -207,7 +269,7 @@ describe("PiAgent.dispatch", () => {
 			});
 			expect(await readFile(join(dir, "out.txt"), "utf8")).toBe("run-1:2:faux-strong:high");
 		} finally {
-			await toolEnv.cleanup();
+			await toolEnv.cleanup(BACKGROUND_CONTEXT);
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
