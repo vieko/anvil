@@ -287,7 +287,7 @@ Decisions are driven by usage data, not speculation. These are intentionally
   case); when `--model` is supplied without `--effort` the engine normalises to
   `high` at the `runToGate` boundary (`DEFAULT_EFFORT`) so attempt 0 always
   reasons at a known level. `--effort low` opts into the gentle ladder
-  (`low → high → opus/high → …`); `--effort max` pins the ceiling.
+  (`low → high → fable/high → …`); `--effort max` pins the ceiling.
 - **Output styling (Pi-harness parity / TTY color).** Considered matching how
   the Pi harness styles agent activity. Rejected the port: Pi's rich look is its
   **interactive TUI** (`@earendil-works/pi-tui` components + themed background

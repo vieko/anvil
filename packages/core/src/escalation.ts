@@ -7,7 +7,7 @@
 //
 // Pure + deterministic, so it is unit-tested directly. `runToGate` wires it
 // into the loop. Ported from forge's escalation.ts, generalized: the strong
-// tier is a parameter (anvil is provider-agnostic), not a hardcoded "opus".
+// tier is a parameter (anvil is provider-agnostic), not a hardcoded model.
 //
 // Ladder shape (with the default 3-attempt cap, the climb is intentionally
 // aggressive — jump straight to `high`, then switch model, then climb effort):
@@ -26,8 +26,16 @@ import type { Effort, Escalator, ModelEffort } from "./types.ts";
 /** Effort levels, weakest to strongest. */
 export const EFFORT_LADDER: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
-/** Default strong tier anvil escalates a weak base up to. Caller can override. */
-export const DEFAULT_STRONG_MODEL = "opus";
+/**
+ * Default strong tier anvil escalates a weak base up to. Caller can override.
+ *
+ * Fable 5.1 over Opus 5: on anvil's observed token profile the strong rung's
+ * spend is ~65% prompt-cache reads, and fable reads at half opus's cache-read
+ * price while output/cache-write are 2x, so the rung costs the same and gets
+ * the stronger model. Opus stays a strong base (not weak-tier): an `opus`
+ * base climbs effort on opus and never switches.
+ */
+export const DEFAULT_STRONG_MODEL = "fable";
 
 /** Default weak-tier matcher: cheaper/smaller models that should escalate. */
 export const DEFAULT_WEAK_TIER = /sonnet|haiku|mini|flash|small|lite|nano|luna|terra|glm/i;
