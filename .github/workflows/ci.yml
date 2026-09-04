@@ -21,7 +21,11 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
+      # The release-age cooldown is enforced where resolution happens (`npm
+      # install` -> package-lock.json, per .npmrc). `npm ci` re-checks it against
+      # packuments because the lockfile omits `resolved`, and that path ignores
+      # `min-release-age-exclude` (npm/cli#9715), so it is disabled here only.
+      - run: npm ci --min-release-age=0
       # One gate: biome -> tsc --noEmit -> build -> test (real git worktrees,
       # faux-model e2e -- no API key required).
       - run: npm run check
