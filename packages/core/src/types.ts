@@ -33,6 +33,8 @@ export interface TokenUsage {
 	input: number;
 	output: number;
 	cacheRead: number;
+	/** Cache-write tokens, when the provider reports them (#12 Tier 3 usage accounting). */
+	cacheWrite?: number;
 }
 
 export interface AgentDispatch {
@@ -184,6 +186,28 @@ export interface Gate {
 
 export type RunState = "pending" | "running" | "verifying" | "retrying" | "passed" | "failed";
 
+/**
+ * Per-attempt outcome, appended to {@link RunRecord.attempts} as each attempt
+ * starts and finalized at its terminal transition (#12 Tier 3). This is what
+ * answers escalation-tuning questions (which rung first-passes, what a strong
+ * rung costs, fresh-handoff vs resume) that a single overwriting record cannot:
+ * attempt 0's config and spend used to vanish the moment attempt 1 started.
+ */
+export interface AttemptRecord {
+	/** 0-based, matches the {@link RunRecord.attempt} in effect while this attempt ran. */
+	attempt: number;
+	/** What this attempt actually dispatched, post-escalation-clamp. */
+	config: ModelEffort;
+	verdict: "passed" | "failed" | "retrying" | "void" | "dispatch-failed";
+	/** This attempt's own usage (its dispatch total, see {@link TokenUsage} / pi-agent), not cumulative. */
+	usage?: TokenUsage;
+	/** Gate/guard text fed to the next attempt's prompt, if any. */
+	errors?: string;
+	startedAt: string;
+	/** Unset only while this attempt is still running. */
+	endedAt?: string;
+}
+
 /** A persisted snapshot of one run. Written at every state transition for crash-resumability. */
 export interface RunRecord {
 	outcomeId: string;
@@ -201,7 +225,10 @@ export interface RunRecord {
 	config: ModelEffort;
 	errors?: string;
 	sessionId?: string;
+	/** Cumulative usage across every attempt (sum of {@link attempts}`[].usage`), per #12. */
 	usage?: TokenUsage;
+	/** Per-attempt history: one entry per attempt, oldest first (#12 Tier 3). */
+	attempts: AttemptRecord[];
 	/** The worktree branch this run lives on, so `status` can point at the result. */
 	branch?: string;
 	updatedAt: string;

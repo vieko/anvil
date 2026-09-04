@@ -12,6 +12,7 @@ function record(partial: Partial<RunRecord> & Pick<RunRecord, "outcomeId" | "sta
 		attempt: 0,
 		maxAttempts: 3,
 		config: { model: "sonnet" },
+		attempts: [],
 		updatedAt: new Date().toISOString(),
 		...partial,
 	};
@@ -56,6 +57,33 @@ describe("FileStatePersister", () => {
 
 		expect((await p.load("a/b"))?.errors).toBe("from-slash");
 		expect((await p.load("a-b"))?.errors).toBe("from-dash");
+	});
+
+	it("round-trips the attempts[] history through a save/load cycle (#12)", async () => {
+		const attempts: RunRecord["attempts"] = [
+			{
+				attempt: 0,
+				config: { model: "sonnet", effort: "high" },
+				verdict: "retrying",
+				usage: { input: 10, output: 5, cacheRead: 1, cacheWrite: 2 },
+				errors: "still broken",
+				startedAt: "2026-01-01T00:00:00Z",
+				endedAt: "2026-01-01T00:00:01Z",
+			},
+			{
+				attempt: 1,
+				config: { model: "fable", effort: "high" },
+				verdict: "passed",
+				usage: { input: 20, output: 8, cacheRead: 3 },
+				startedAt: "2026-01-01T00:00:02Z",
+				endedAt: "2026-01-01T00:00:03Z",
+			},
+		];
+		const p = new FileStatePersister({ dir });
+		await p.save(record({ outcomeId: "hist", state: "passed", attempt: 1, attempts }));
+
+		const loaded = await p.load("hist");
+		expect(loaded?.attempts).toEqual(attempts);
 	});
 
 	it("leaves no temp files behind after a save (atomic rename)", async () => {

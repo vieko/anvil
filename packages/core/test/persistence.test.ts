@@ -7,6 +7,7 @@ function record(partial: Partial<RunRecord> & Pick<RunRecord, "outcomeId" | "sta
 		attempt: 0,
 		maxAttempts: 3,
 		config: { model: "sonnet" },
+		attempts: [],
 		updatedAt: new Date().toISOString(),
 		...partial,
 	};
@@ -109,6 +110,60 @@ describe("runToGate resume", () => {
 		expect(res.attempts).toBe(2); // resumed at attempt index 1, passed -> 2
 		expect(agent.calls).toHaveLength(1);
 		expect(agent.calls[0]).toEqual({ config: "sonnet", resume: "s0" }); // escalate(low, 1) = sonnet@high
+	});
+
+	it("rehydrates prior attempts on resume (#12), appending new entries after the loaded history", async () => {
+		const prior = [
+			{
+				attempt: 0,
+				config: { model: "sonnet", effort: "low" as const },
+				verdict: "retrying" as const,
+				usage: { input: 5, output: 2, cacheRead: 0 },
+				errors: "boom",
+				startedAt: "2026-01-01T00:00:00Z",
+				endedAt: "2026-01-01T00:00:01Z",
+			},
+		];
+		const persist = new MemoryStatePersister();
+		await persist.save(
+			record({ outcomeId: "t", state: "retrying", attempt: 0, errors: "boom", sessionId: "s0", attempts: prior }),
+		);
+		const agent = spyAgent();
+
+		const res = await runToGate(
+			{ id: "t", prompt: "p", base: { model: "sonnet", effort: "low" } },
+			{ agent, workspace: fakeWorkspace(), gate: passingGate, persist },
+			{ resume: true },
+		);
+
+		expect(res.passed).toBe(true);
+		expect(res.timeline).toHaveLength(2); // the rehydrated attempt 0 plus the new attempt 1
+		expect(res.timeline[0]).toEqual(prior[0]);
+		expect(res.timeline[1]).toMatchObject({ attempt: 1, verdict: "passed" });
+	});
+
+	it("loads a legacy record with no `attempts` field as an empty history, without error (#12)", async () => {
+		const persist = new MemoryStatePersister();
+		// Simulate a pre-#12 record on disk: no `attempts` field at all.
+		const { attempts: _omit, ...legacy } = record({
+			outcomeId: "t",
+			state: "retrying",
+			attempt: 0,
+			errors: "boom",
+			sessionId: "s0",
+		});
+		await persist.save(legacy as RunRecord);
+		const agent = spyAgent();
+
+		const res = await runToGate(
+			{ id: "t", prompt: "p", base: { model: "sonnet", effort: "low" } },
+			{ agent, workspace: fakeWorkspace(), gate: passingGate, persist },
+			{ resume: true },
+		);
+
+		expect(res.passed).toBe(true);
+		expect(res.timeline).toHaveLength(1); // only the new attempt; no crash on the missing field
+		expect(res.timeline[0]).toMatchObject({ attempt: 1, verdict: "passed" });
 	});
 
 	it("starts fresh when there is no prior record", async () => {

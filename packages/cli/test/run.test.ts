@@ -105,10 +105,12 @@ describe("executeRun", () => {
 		expect(out).toHaveLength(1); // exactly one JSON line on stdout, no prose
 		// A weak green: auto-detected gate, no contract, no scope -> a caller should flag
 		// this for review rather than integrate blind.
-		expect(JSON.parse(out[0])).toEqual({
+		const payload = JSON.parse(out[0]);
+		expect(payload).toEqual({
 			id: "feat",
 			passed: true,
 			attempts: 1,
+			timeline: payload.timeline,
 			finalModel: "sonnet",
 			finalEffort: "high",
 			branch: "anvil/feat/abc",
@@ -116,6 +118,11 @@ describe("executeRun", () => {
 			contract: false,
 			scope: false,
 		});
+		// The per-attempt history (#12 Tier 3): one entry for the single attempt this
+		// pass took, config/verdict/usage carried alongside the plain `attempts` count.
+		expect(payload.timeline).toEqual([
+			expect.objectContaining({ attempt: 0, config: { model: "sonnet", effort: "high" }, verdict: "passed" }),
+		]);
 	});
 
 	it("--json carries gate provenance so a caller can tell a strong green from a weak one", async () => {

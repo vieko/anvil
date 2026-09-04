@@ -62,13 +62,16 @@ export async function executeRun(
 	// safe to integrate blind; a weak green (auto-detected, no contract, no scope)
 	// warrants human review. `contract`/`scope` are true when the guard was enforced;
 	// since any violation voids the run, on a pass they also mean it *held*.
-	// (`costUsd` and per-attempt history are still deferred -- see issue #12.)
+	// `timeline` is the run's per-attempt history (#12 Tier 3: config/verdict/usage
+	// per attempt); `attempts` stays the plain count for compatibility. `costUsd`
+	// (pricing the usage) is still deferred -- see issue #12 Tier 2.
 	if (options.json) {
 		io.out(
 			JSON.stringify({
 				id: outcome.id,
 				passed: result.passed,
 				attempts: result.attempts,
+				timeline: result.timeline,
 				finalModel: result.finalConfig.model,
 				finalEffort: result.finalConfig.effort,
 				branch: deps.workspace.branch,

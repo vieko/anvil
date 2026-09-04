@@ -412,6 +412,122 @@ describe("runToGate", () => {
 	});
 });
 
+describe("attempts[] per-attempt history (#12 Tier 3)", () => {
+	it("records verdicts retrying, retrying, passed across a 3-attempt run, with cumulative usage", async () => {
+		let n = 0;
+		const usages = [
+			{ input: 10, output: 5, cacheRead: 1 },
+			{ input: 20, output: 8, cacheRead: 2 },
+			{ input: 30, output: 12, cacheRead: 3 },
+		];
+		const agent: Agent = {
+			async dispatch() {
+				const usage = usages[n++];
+				return { text: `attempt ${n}`, usage };
+			},
+		};
+		let verifyCalls = 0;
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				if (verifyCalls < 3) return { passed: false, errors: `still broken ${verifyCalls}`, commands: [] };
+				return { passed: true, errors: "", commands: [] };
+			},
+		};
+		const persist = recordingPersister();
+
+		const res = await runToGate({ id: "tl1", prompt: "p" }, { agent, workspace: fakeWorkspace(), gate, persist });
+
+		expect(res.passed).toBe(true);
+		expect(res.timeline).toHaveLength(3);
+		expect(res.timeline.map((a) => a.verdict)).toEqual(["retrying", "retrying", "passed"]);
+		expect(res.timeline.map((a) => a.attempt)).toEqual([0, 1, 2]);
+		expect(res.timeline.map((a) => a.usage)).toEqual(usages);
+		expect(res.timeline.every((a) => a.startedAt && a.endedAt)).toBe(true);
+		expect(res.timeline[0].errors).toBe("still broken 1");
+		expect(res.timeline[1].errors).toBe("still broken 2");
+		expect(res.timeline[2].errors).toBeUndefined();
+	});
+
+	it("marks a contract/scope guard voided attempt as verdict 'void'", async () => {
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "done", usage: { input: 1, output: 1, cacheRead: 0 } };
+			},
+		};
+		const ws = fakeWorkspace();
+		const frozenWs: Workspace = {
+			...ws,
+			async assertContract() {
+				return { path: "contract.test.ts", diff: "-x\n+y" };
+			},
+		};
+
+		const res = await runToGate(
+			{ id: "void1", prompt: "p" },
+			{ agent, workspace: frozenWs, gate: passingGate, persist: recordingPersister() },
+		);
+
+		expect(res.timeline).toHaveLength(1);
+		expect(res.timeline[0]).toMatchObject({ attempt: 0, verdict: "void" });
+		expect(res.timeline[0].errors).toContain("modified the contract");
+	});
+
+	it("marks the false-pass guard's empty/provider-error turn as verdict 'dispatch-failed'", async () => {
+		let n = 0;
+		const agent: Agent = {
+			async dispatch() {
+				n++;
+				return n === 1
+					? { text: "", usage: { input: 0, output: 0, cacheRead: 0 } }
+					: { text: "done", usage: { input: 10, output: 5, cacheRead: 0 } };
+			},
+		};
+
+		const res = await runToGate(
+			{ id: "dispatch1", prompt: "p" },
+			{ agent, workspace: fakeWorkspace(), gate: passingGate, persist: recordingPersister() },
+		);
+
+		expect(res.passed).toBe(true);
+		expect(res.timeline).toHaveLength(2);
+		expect(res.timeline[0]).toMatchObject({ attempt: 0, verdict: "dispatch-failed" });
+		expect(res.timeline[1]).toMatchObject({ attempt: 1, verdict: "passed" });
+	});
+
+	it("RunRecord.usage persisted at each write is the cumulative sum across attempts so far (#12)", async () => {
+		let n = 0;
+		const usages = [
+			{ input: 10, output: 5, cacheRead: 0 },
+			{ input: 7, output: 3, cacheRead: 1 },
+		];
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "x", usage: usages[n++] };
+			},
+		};
+		let verifyCalls = 0;
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				if (verifyCalls === 1) return { passed: false, errors: "nope", commands: [] };
+				return { passed: true, errors: "", commands: [] };
+			},
+		};
+		const records: RunRecord[] = [];
+		const persist: StatePersister = {
+			async save(r) {
+				records.push(structuredClone(r));
+			},
+		};
+
+		await runToGate({ id: "cum1", prompt: "p" }, { agent, workspace: fakeWorkspace(), gate, persist });
+
+		const passedRecord = records.find((r) => r.state === "passed");
+		expect(passedRecord?.usage).toEqual({ input: 17, output: 8, cacheRead: 1, cacheWrite: 0 });
+	});
+});
+
 describe("classifyDispatch", () => {
 	it("flags empty text with zero tokens as 'empty' (the turn never ran)", () => {
 		expect(classifyDispatch({ text: "  ", usage: { input: 0, output: 0, cacheRead: 0 } })).toBe("empty");

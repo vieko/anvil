@@ -136,9 +136,14 @@ For script/agent callers, both commands take `--json` (human chrome and the
 `-v` stream move to stderr; the JSON goes to stdout, exit codes unchanged):
 
 - `anvil run --json` -> one object:
-  `{ id, passed, attempts, finalModel, finalEffort, branch,
+  `{ id, passed, attempts, timeline, finalModel, finalEffort, branch,
      gate: { commands, source }, contract, scope, errors? }`.
-- `anvil status --json` -> the record ledger as a JSON array.
+  `timeline` is the per-attempt history (#12 Tier 3): one entry per attempt with
+  its dispatched `config`, `verdict` (`passed`/`failed`/`retrying`/`void`/
+  `dispatch-failed`), its own `usage`, and `startedAt`/`endedAt`. `attempts`
+  stays the plain count for compatibility.
+- `anvil status --json` -> the record ledger as a JSON array (each record's
+  `attempts` field is that same per-attempt history).
 
 ### Routing trust from a green (gate provenance)
 

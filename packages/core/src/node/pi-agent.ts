@@ -11,7 +11,7 @@ import { AgentHarness, JsonlSessionRepo, MemorySessionRepo } from "@earendil-wor
 import type { AssistantMessage, Model, Models, RetryPolicy } from "@earendil-works/pi-ai";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import type { Agent, AgentDispatch, AgentEventSink, AgentResult, Effort, ModelEffort } from "../index.ts";
+import type { Agent, AgentDispatch, AgentEventSink, AgentResult, Effort, ModelEffort, TokenUsage } from "../index.ts";
 import { createModelResolver, withGatewayCompatModels } from "./model-resolver.ts";
 import { contextFor } from "./pi-exec.ts";
 import { type AnvilTool, defaultTools } from "./tools.ts";
@@ -144,10 +144,18 @@ export class PiAgent implements Agent {
 
 		// The run's own final assistant message, captured from the turn stream:
 		// 0.85's terminal record carries status and tip ids, not the message.
+		// Usage is the SUM across every turn_end (#12): a dispatch with tool calls
+		// runs several assistant turns before its final answer, and the final
+		// message alone under-reports the dispatch's actual spend by ~99%.
 		let finalMessage: AssistantMessage | undefined;
+		const totalUsage: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 		const unsubscribe = [
 			runtime.harness.events.on("turn_end", (event) => {
 				finalMessage = event.message;
+				totalUsage.input += event.message.usage.input;
+				totalUsage.output += event.message.usage.output;
+				totalUsage.cacheRead += event.message.usage.cacheRead;
+				totalUsage.cacheWrite = (totalUsage.cacheWrite ?? 0) + event.message.usage.cacheWrite;
 			}),
 			...this.subscribeActivity(runtime),
 		];
@@ -157,11 +165,7 @@ export class PiAgent implements Agent {
 			const message = finalMessage ?? (await tipAssistantMessage(runtime.session, record, context));
 			return {
 				text: extractText(message),
-				usage: {
-					input: message.usage.input,
-					output: message.usage.output,
-					cacheRead: message.usage.cacheRead,
-				},
+				usage: totalUsage,
 				sessionId,
 			};
 		} finally {

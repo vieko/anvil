@@ -10,6 +10,7 @@ import { escalate as defaultEscalate } from "./escalation.ts";
 import type {
 	Agent,
 	AgentResult,
+	AttemptRecord,
 	Effort,
 	Escalator,
 	Gate,
@@ -18,6 +19,7 @@ import type {
 	RunRecord,
 	RunState,
 	StatePersister,
+	TokenUsage,
 	Workspace,
 } from "./types.ts";
 
@@ -55,6 +57,8 @@ export interface RunToGateResult {
 	 * violation / out-of-scope edit) or a dispatch that never reached verification.
 	 */
 	gateCommands?: string[];
+	/** Per-attempt history for this run, oldest first (#12 Tier 3). Same array as {@link RunRecord.attempts}. */
+	timeline: AttemptRecord[];
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -104,6 +108,11 @@ export async function runToGate(
 	let lastErrors: string | undefined;
 	let sessionId: string | undefined;
 	let gateCommands: string[] | undefined;
+	// Per-attempt history (#12 Tier 3): one entry per dispatched attempt, appended
+	// when the attempt starts and finalized (verdict + endedAt) at its terminal
+	// transition. Rehydrated on resume (below) so a crash-resume keeps the prior
+	// attempts instead of losing them the way the old overwriting record did.
+	const attempts: AttemptRecord[] = [];
 
 	const record = (
 		state: RunState,
@@ -121,6 +130,11 @@ export async function runToGate(
 			errors: lastErrors,
 			branch: workspace.branch,
 			updatedAt: new Date().toISOString(),
+			// Cumulative across every attempt (#12): the sum of attempts[].usage, not
+			// the current dispatch alone -- snapshotted fresh each write so an earlier
+			// persisted record is never retroactively mutated by a later attempt.
+			usage: sumUsage(attempts),
+			attempts: attempts.map((a) => ({ ...a })),
 			...extra,
 		});
 
@@ -128,7 +142,13 @@ export async function runToGate(
 	if (options.resume && persist.load) {
 		const prev = await persist.load(outcome.id);
 		if (prev?.state === "passed") {
-			return { outcomeId: outcome.id, passed: true, attempts: prev.attempt + 1, finalConfig: prev.config };
+			return {
+				outcomeId: outcome.id,
+				passed: true,
+				attempts: prev.attempt + 1,
+				finalConfig: prev.config,
+				timeline: prev.attempts ?? [],
+			};
 		}
 		if (prev?.state === "failed") {
 			return {
@@ -137,6 +157,7 @@ export async function runToGate(
 				attempts: prev.maxAttempts,
 				finalConfig: prev.config,
 				errors: prev.errors,
+				timeline: prev.attempts ?? [],
 			};
 		}
 		if (prev) {
@@ -145,6 +166,14 @@ export async function runToGate(
 			sessionId = prev.sessionId;
 			lastErrors = prev.errors;
 			startAttempt = prev.state === "retrying" ? prev.attempt + 1 : prev.attempt;
+			// Rehydrate prior attempts (#12); a record written before #12 has no
+			// `attempts` field and loads as an empty history, not an error. A
+			// `running`/`verifying` resume redoes that attempt's dispatch from
+			// scratch, so drop its still-open entry (no `endedAt`) rather than
+			// duplicate it once the loop below appends the fresh one.
+			const rehydrated = (prev.attempts ?? []).map((a) => ({ ...a }));
+			if (rehydrated.length > 0 && rehydrated[rehydrated.length - 1].endedAt === undefined) rehydrated.pop();
+			attempts.push(...rehydrated);
 			if (lastErrors) prompt = buildRetryPrompt(outcome.prompt, lastErrors, startAttempt, maxAttempts);
 		}
 	}
@@ -153,6 +182,7 @@ export async function runToGate(
 		if (options.signal?.aborted) break;
 		const config = escalate(base, attempt);
 
+		const current = beginAttempt(attempts, attempt, config);
 		await record("running", attempt, config);
 		const dispatch = await agent.dispatch({
 			prompt,
@@ -163,6 +193,10 @@ export async function runToGate(
 			attempt: attempt + 1,
 		});
 		sessionId = dispatch.sessionId ?? sessionId;
+		// Attach usage to this attempt as soon as it's known (before its verdict is
+		// decided), so an interim "verifying" record's cumulative usage (#12) already
+		// includes the dispatch that just ran.
+		current.usage = dispatch.usage;
 
 		// False-pass guard (forge #19/#297): a "successful" turn that returned
 		// nothing (empty text + zero tokens) never actually ran, and result text
@@ -177,10 +211,8 @@ export async function runToGate(
 					? "The agent returned an empty response with no token usage; the turn did not execute."
 					: "The agent turn ended with a provider/API error before completing.";
 			const dispatchFailedLast = attempt + 1 >= maxAttempts;
-			await record(dispatchFailedLast ? "failed" : "retrying", attempt, config, {
-				usage: dispatch.usage,
-				errors: lastErrors,
-			});
+			finishAttempt(current, "dispatch-failed", lastErrors);
+			await record(dispatchFailedLast ? "failed" : "retrying", attempt, config);
 			continue;
 		}
 
@@ -191,8 +223,16 @@ export async function runToGate(
 		const contract = await workspace.assertContract?.();
 		if (contract) {
 			lastErrors = `anvil: the agent modified the contract (${contract.path}); the run is void.\n\n${contract.diff}`;
-			await record("failed", attempt, config, { usage: dispatch.usage, errors: lastErrors });
-			return { outcomeId: outcome.id, passed: false, attempts: attempt + 1, finalConfig: config, errors: lastErrors };
+			finishAttempt(current, "void", lastErrors);
+			await record("failed", attempt, config);
+			return {
+				outcomeId: outcome.id,
+				passed: false,
+				attempts: attempt + 1,
+				finalConfig: config,
+				errors: lastErrors,
+				timeline: attempts,
+			};
 		}
 
 		// Blast-radius guard (#8): with --scope set, the agent may only modify files
@@ -204,29 +244,49 @@ export async function runToGate(
 		if (scope) {
 			const paths = scope.outside.map((p) => `  ${p}`).join("\n");
 			lastErrors = `anvil: the agent modified ${scope.outside.length} file(s) outside --scope; the run is void.\n\n${paths}`;
-			await record("failed", attempt, config, { usage: dispatch.usage, errors: lastErrors });
-			return { outcomeId: outcome.id, passed: false, attempts: attempt + 1, finalConfig: config, errors: lastErrors };
+			finishAttempt(current, "void", lastErrors);
+			await record("failed", attempt, config);
+			return {
+				outcomeId: outcome.id,
+				passed: false,
+				attempts: attempt + 1,
+				finalConfig: config,
+				errors: lastErrors,
+				timeline: attempts,
+			};
 		}
 
-		await record("verifying", attempt, config, { usage: dispatch.usage });
+		await record("verifying", attempt, config);
 		const result = await gate.verify(workspace, options.signal);
 		gateCommands = result.commands.map((c) => c.cmd);
 
 		if (result.passed) {
 			await workspace.commit(`anvil: ${outcome.id}`);
-			await record("passed", attempt, config, { usage: dispatch.usage, errors: undefined });
-			return { outcomeId: outcome.id, passed: true, attempts: attempt + 1, finalConfig: config, gateCommands };
+			finishAttempt(current, "passed", undefined);
+			await record("passed", attempt, config, { errors: undefined });
+			return {
+				outcomeId: outcome.id,
+				passed: true,
+				attempts: attempt + 1,
+				finalConfig: config,
+				gateCommands,
+				timeline: attempts,
+			};
 		}
 
 		// An inconclusive gate is not a real failure: re-verify on the next
-		// iteration without advancing the prompt or recording a fix-up error.
+		// iteration without advancing the prompt or recording a fix-up error. Not a
+		// terminal verdict of its own (#12's enum has none); "retrying" is the
+		// closest fit -- this attempt did not settle, and the loop tries again.
 		if (result.inconclusive) {
-			await record("verifying", attempt, config, { usage: dispatch.usage });
+			finishAttempt(current, "retrying", undefined);
+			await record("verifying", attempt, config);
 			continue;
 		}
 
 		lastErrors = result.errors;
 		const isLast = attempt + 1 >= maxAttempts;
+		finishAttempt(current, isLast ? "failed" : "retrying", result.errors);
 		await record(isLast ? "failed" : "retrying", attempt, config, { errors: result.errors });
 		if (!isLast) {
 			prompt = buildRetryPrompt(outcome.prompt, result.errors, attempt + 1, maxAttempts);
@@ -240,7 +300,44 @@ export async function runToGate(
 		finalConfig: escalate(base, maxAttempts - 1),
 		errors: lastErrors,
 		gateCommands,
+		timeline: attempts,
 	};
+}
+
+/** Push a new open {@link AttemptRecord} for an attempt about to dispatch (#12). */
+function beginAttempt(attempts: AttemptRecord[], attempt: number, config: ModelEffort): AttemptRecord {
+	const entry: AttemptRecord = {
+		attempt,
+		config,
+		// Provisional until `finishAttempt` below settles it; "retrying" is the
+		// least-committal placeholder for "not yet resolved".
+		verdict: "retrying",
+		startedAt: new Date().toISOString(),
+	};
+	attempts.push(entry);
+	return entry;
+}
+
+/** Settle an {@link AttemptRecord} at its terminal transition (#12). Usage is set separately, as soon as the dispatch returns. */
+function finishAttempt(entry: AttemptRecord, verdict: AttemptRecord["verdict"], errors: string | undefined): void {
+	entry.verdict = verdict;
+	entry.errors = errors;
+	entry.endedAt = new Date().toISOString();
+}
+
+/** Cumulative usage across every attempt that has one (#12 Tier 3 -- RunRecord.usage is now this sum, not the last dispatch's). */
+function sumUsage(attempts: AttemptRecord[]): TokenUsage | undefined {
+	const withUsage = attempts.filter((a) => a.usage !== undefined);
+	if (withUsage.length === 0) return undefined;
+	return withUsage.reduce<TokenUsage>(
+		(sum, a) => ({
+			input: sum.input + (a.usage?.input ?? 0),
+			output: sum.output + (a.usage?.output ?? 0),
+			cacheRead: sum.cacheRead + (a.usage?.cacheRead ?? 0),
+			cacheWrite: (sum.cacheWrite ?? 0) + (a.usage?.cacheWrite ?? 0),
+		}),
+		{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	);
 }
 
 /** Outcome-driven retry prompt: fix the root cause, do not work around the checks. */

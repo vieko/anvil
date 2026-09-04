@@ -122,6 +122,10 @@ instead of re-reading the diff:
   "id": "parser-tests",
   "passed": true,
   "attempts": 2,
+  "timeline": [
+    { "attempt": 0, "config": { "model": "sonnet", "effort": "high" }, "verdict": "retrying", "usage": { "input": 812, "output": 340, "cacheRead": 0 }, "errors": "...", "startedAt": "...", "endedAt": "..." },
+    { "attempt": 1, "config": { "model": "fable", "effort": "high" }, "verdict": "passed", "usage": { "input": 1204, "output": 512, "cacheRead": 6300 }, "startedAt": "...", "endedAt": "..." }
+  ],
   "finalModel": "fable",
   "finalEffort": "high",
   "branch": "anvil/parser-tests/lz4k9",
@@ -130,6 +134,9 @@ instead of re-reading the diff:
   "scope": true      // a scope was enforced (and held)
 }
 ```
+
+`timeline` is the per-attempt history (#12 Tier 3): what each attempt actually
+dispatched, its verdict, and its own usage -- not just the final tally.
 
 ## Drive it from any harness
 
