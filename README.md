@@ -122,7 +122,7 @@ instead of re-reading the diff:
   "id": "parser-tests",
   "passed": true,
   "attempts": 2,
-  "finalModel": "opus",
+  "finalModel": "fable",
   "finalEffort": "high",
   "branch": "anvil/parser-tests/lz4k9",
   "gate": { "commands": ["tsc --noEmit", "npm test"], "source": "explicit" },

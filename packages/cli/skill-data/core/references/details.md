@@ -63,14 +63,14 @@ Each failed attempt strengthens the (model, effort) pair, so a too-weak base
 does not simply loop until the cap:
 
 - a **weak base** (sonnet / haiku / ...) jumps to high effort, then switches to
-  the strong tier (opus), then climbs opus effort:
-  `low -> high -> opus@high -> opus@xhigh -> opus@max`.
-- a **strong base** (opus) climbs effort only — no model switch.
+  the strong tier (fable), then climbs fable effort:
+  `low -> high -> fable@high -> fable@xhigh -> fable@max`.
+- a **strong base** (fable / opus) climbs effort only — no model switch.
 
-With the default cap of 3 attempts, a weak base reaches opus by the final one.
+With the default cap of 3 attempts, a weak base reaches fable by the final one.
 Set the base with `--model` and `--effort`; the climb is automatic. The default
 base is `sonnet` at `high` effort, so the default ladder is
-`sonnet@high -> opus@high -> opus@xhigh`.
+`sonnet@high -> fable@high -> fable@xhigh`.
 
 ## Model aliases
 

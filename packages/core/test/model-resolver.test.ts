@@ -204,7 +204,7 @@ describe("createSupportedEfforts", () => {
 	it("clamps an explicit max on haiku down to its verified ceiling in the ladder", () => {
 		expect(buildEscalationLadder({ model: "haiku", effort: "max" }, { supportedEfforts: supported })).toEqual([
 			{ model: "haiku", effort: "high" },
-			{ model: "opus", effort: "max" },
+			{ model: "fable", effort: "max" },
 		]);
 	});
 });

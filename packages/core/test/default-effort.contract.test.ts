@@ -84,7 +84,7 @@ describe("default effort (frozen contract)", () => {
 		expect(seen).toEqual([
 			{ model: "sonnet", effort: "low" },
 			{ model: "sonnet", effort: "high" },
-			{ model: "opus", effort: "high" },
+			{ model: "fable", effort: "high" },
 		]);
 	});
 });
