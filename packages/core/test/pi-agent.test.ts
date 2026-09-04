@@ -76,6 +76,28 @@ describe("PiAgent.dispatch", () => {
 		expect(res.usage?.output).toBeGreaterThan(0);
 	});
 
+	it("reports usage summed across every turn_end in the dispatch, not just the final message (#12)", async () => {
+		// Control: the same final answer with no tool call -- one turn, one turn_end.
+		faux.setResponses([fauxAssistantMessage("the outcome is done")]);
+		const controlAgent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const control = await controlAgent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
+
+		// A tool-call turn followed by the same final answer: two assistant messages,
+		// two turn_ends. The faux provider's usage grows with the accumulated context,
+		// so the total must exceed the control's single-turn usage -- the final
+		// message alone (what the old code reported) would equal the control, not this.
+		faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("the outcome is done"),
+		]);
+		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const res = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
+
+		expect(res.text).toBe("the outcome is done");
+		expect(res.usage?.input).toBeGreaterThan(control.usage?.input ?? 0);
+		expect(res.usage?.output).toBeGreaterThan(control.usage?.output ?? 0);
+	});
+
 	it("resolves the model per dispatch from the injected config (provider-agnostic)", async () => {
 		faux.setResponses([fauxAssistantMessage("a"), fauxAssistantMessage("b")]);
 		const seen: ModelEffort[] = [];

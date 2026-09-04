@@ -271,10 +271,11 @@ Decisions are driven by usage data, not speculation. These are intentionally
   case". Reopen on a concrete need — a non-Anthropic base that should not cross
   providers to opus, or a cost complaint. The underlying concern is usually "is
   the **default** right?", which is tuning, not a flag.
-- **Richer `status` (per-attempt timeline).** `FileStatePersister` keeps only the
-  latest record per outcome; an append-log (JSONL) variant would give the full
-  timeline. Pure observability polish, zero correctness impact. Reopen when a TUI
-  or a concrete debugging session makes the timeline pull its weight.
+- **Richer `status` (per-attempt timeline).** ~~`FileStatePersister` keeps only
+  the latest record per outcome; an append-log (JSONL) variant would give the
+  full timeline.~~ Shipped as `RunRecord.attempts[]` instead (#12 Tier 3): one
+  file per outcome stays, each attempt appended in-record rather than to a
+  separate log.
 - **Reasoning display and effort control (`-v` / `--reasoning` / `--effort`).**
   `-v` streams the agent's *actions* (tool calls) + gate progress; `--reasoning`
   adds the model's *thinking trace* and implies `-v`. It is a named flag, not
