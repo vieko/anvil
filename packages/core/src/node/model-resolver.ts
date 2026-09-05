@@ -1,4 +1,4 @@
-import type { Api, Model, Models, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { Api, Model, Models, ThinkingLevelMap, VercelGatewayRouting } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import { EFFORT_LADDER, type Effort, type SupportedEfforts } from "../index.ts";
@@ -113,20 +113,30 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * anvil-owned compat overlay for models on the Vercel AI Gateway, as a clone so
  * the shared registry object is never mutated.
  *
- * Every `anthropic/*` model is pinned to Anthropic's own Messages transport:
- * the beta headers the overlay below depends on are not guaranteed on the
- * gateway's Bedrock/Vertex routes. Opus 5 and Fable 5.1 additionally get
- * `supportsMidConvoEffort`, which is what makes the escalation ladder's
- * effort climb safe on one resumed session (per-turn effort persisted,
- * effort-only system messages rebuilt on replay, stale signed-thinking
- * prefixes dropped instead of 400ing). pi-ai's catalog enables it only for the
- * native `anthropic` provider, so anvil owns it for the gateway route.
+ * Every `anthropic/*` model is fenced to Anthropic's own Messages transport
+ * (`only`, not `order`): the gateway can otherwise serve a run from
+ * `anthropic`, `bedrock`, `claudeaws`, or `vertexAnthropic`, and a run that
+ * silently moves backends pays a full-prefix cache rewrite at 1h write rates
+ * and loses the beta-header guarantees below. An unattended golem is better
+ * served by a loud provider error the retry policy can handle. Opus 5 and
+ * Fable 5.1 additionally get `supportsMidConvoEffort`, which is what makes the
+ * escalation ladder's effort climb safe on one resumed session (per-turn
+ * effort persisted, effort-only system messages rebuilt on replay, stale
+ * signed-thinking prefixes dropped instead of 400ing). pi-ai's catalog enables
+ * it only for the native `anthropic` provider, so anvil owns it for the
+ * gateway route.
  *
- * GPT-6 Astra is pinned to OpenAI's route and gets `forceAdaptiveThinking`
+ * GPT-6 Astra is fenced to OpenAI's route and gets `forceAdaptiveThinking`
  * plus the full `low..max` level map: on the gateway pi only sends
  * `output_config.effort` for this model under adaptive thinking, and only the
  * levels the map names are selectable (the catalog names just `xhigh`).
  * `supportsMidConvoEffort` stays Claude-only.
+ *
+ * The routing pin is enforced by PiAgent's `before_payload` hook via
+ * {@link applyGatewayRouting}, because pi-ai's anthropic-messages adapter does
+ * not send `vercelGatewayRouting` (only openai-completions does; see
+ * earendil-works/pi#9211). The compat field is the declaration; the hook is
+ * what writes `providerOptions.gateway` into the request body.
  */
 export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TModel {
 	if (model.provider !== "vercel-ai-gateway") return model;
@@ -136,7 +146,7 @@ export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TMo
 			...model,
 			compat: {
 				...model.compat,
-				vercelGatewayRouting: { order: ["anthropic"] },
+				vercelGatewayRouting: { only: ["anthropic"] },
 				...(MID_CONVO_EFFORT_MODELS.has(model.id) ? { supportsMidConvoEffort: true } : {}),
 			} as TModel["compat"],
 		};
@@ -147,12 +157,41 @@ export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TMo
 			thinkingLevelMap: { ...ASTRA_THINKING_LEVELS },
 			compat: {
 				...model.compat,
-				vercelGatewayRouting: { order: ["openai"] },
+				vercelGatewayRouting: { only: ["openai"] },
 				forceAdaptiveThinking: true,
 			} as TModel["compat"],
 		};
 	}
 	return model;
+}
+
+/**
+ * The `before_payload` hook body: write `compat.vercelGatewayRouting` into the
+ * request as `providerOptions.gateway.{only,order}`, which the gateway's
+ * `/v1/messages` honors (the Anthropic SDK forwards the extra body key). pi's
+ * anthropic-messages adapter never sends it itself (earendil-works/pi#9211).
+ *
+ * Returns `undefined` (leave the payload alone) for non-gateway models, models
+ * with no `only`/`order` pin, non-object payloads, and payloads that already
+ * carry `providerOptions.gateway` -- so this is a no-op the day pi's adapter
+ * sends it. Never mutates `payload`: a new object is returned.
+ */
+export function applyGatewayRouting(model: Model<any>, payload: unknown): unknown | undefined {
+	if (model.provider !== "vercel-ai-gateway") return undefined;
+	// Cast: `Model<any>["compat"]` collapses to `never` for an unresolved api.
+	const routing = (model.compat as { vercelGatewayRouting?: VercelGatewayRouting } | undefined)?.vercelGatewayRouting;
+	if (routing?.only === undefined && routing?.order === undefined) return undefined;
+	if (!isRecord(payload)) return undefined;
+	const existing = isRecord(payload.providerOptions) ? payload.providerOptions : undefined;
+	if (existing?.gateway !== undefined) return undefined;
+	const gateway: VercelGatewayRouting = {};
+	if (routing.only !== undefined) gateway.only = [...routing.only];
+	if (routing.order !== undefined) gateway.order = [...routing.order];
+	return { ...payload, providerOptions: { ...existing, gateway } };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

@@ -12,7 +12,7 @@ import type { AssistantMessage, Model, Models, RetryPolicy } from "@earendil-wor
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type { Agent, AgentDispatch, AgentEventSink, AgentResult, Effort, ModelEffort, TokenUsage } from "../index.ts";
-import { createModelResolver, withGatewayCompatModels } from "./model-resolver.ts";
+import { applyGatewayRouting, createModelResolver, withGatewayCompatModels } from "./model-resolver.ts";
 import { contextFor } from "./pi-exec.ts";
 import { type AnvilTool, defaultTools } from "./tools.ts";
 import { messageCost } from "./usage-cost.ts";
@@ -217,6 +217,14 @@ export class PiAgent implements Agent {
 			},
 			context,
 		);
+		// The gateway routing pin is body-level: pi's anthropic-messages adapter
+		// does not send `compat.vercelGatewayRouting` (pi#9211), so anvil writes
+		// `providerOptions.gateway` into every request here, against the model the
+		// harness actually resolved (including after a mid-run `setModel`).
+		harness.hooks.on("before_payload", ({ model, payload }) => {
+			const routed = applyGatewayRouting(model, payload);
+			return routed === undefined ? undefined : { payload: routed };
+		});
 		const runtime: SessionRuntime = { session, harness, lane: await harness.lane(LANE, context) };
 		this.runtimes.set(session.metadata.id, runtime);
 		return runtime;

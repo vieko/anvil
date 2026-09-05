@@ -4,6 +4,7 @@ import { builtinModels, getBuiltinModel } from "@earendil-works/pi-ai/providers/
 import { describe, expect, it } from "vitest";
 import { buildEscalationLadder, EFFORT_LADDER } from "../src/index.ts";
 import {
+	applyGatewayRouting,
 	createModelResolver,
 	createSupportedEfforts,
 	DEFAULT_MODEL_ALIASES,
@@ -37,7 +38,7 @@ describe("createModelResolver", () => {
 		const opus5 = resolve({ model: "vercel-ai-gateway:anthropic/claude-opus-5" });
 		const fable = resolve({ model: "vercel-ai-gateway:anthropic/claude-fable-5.1" });
 		expect(fable.compat).toMatchObject({
-			vercelGatewayRouting: { order: ["anthropic"] },
+			vercelGatewayRouting: { only: ["anthropic"] },
 			supportsMidConvoEffort: true,
 		});
 		// The overlay is a shallow merge: the registry's own compat (load-bearing --
@@ -47,7 +48,7 @@ describe("createModelResolver", () => {
 		expect(opus5.id).toBe("anthropic/claude-opus-5");
 		expect(opus5.name).toBe("Claude Opus 5");
 		expect(opus5.compat).toMatchObject({
-			vercelGatewayRouting: { order: ["anthropic"] },
+			vercelGatewayRouting: { only: ["anthropic"] },
 			supportsMidConvoEffort: true,
 		});
 		// Pin the gateway terms the escalation ladder prices against
@@ -60,7 +61,7 @@ describe("createModelResolver", () => {
 	it("applies the Claude gateway overlay only to Anthropic models", () => {
 		const resolve = createModelResolver();
 		const sonnet = resolve({ model: "vercel-ai-gateway:anthropic/claude-sonnet-5" });
-		expect(sonnet.compat).toMatchObject({ vercelGatewayRouting: { order: ["anthropic"] } });
+		expect(sonnet.compat).toMatchObject({ vercelGatewayRouting: { only: ["anthropic"] } });
 		expect(sonnet.compat).not.toHaveProperty("supportsMidConvoEffort");
 		const luna = resolve({ model: "vercel-ai-gateway:openai/gpt-5.6-luna" });
 		expect(luna.compat).toBeUndefined();
@@ -73,7 +74,7 @@ describe("createModelResolver", () => {
 		expect(astra.id).toBe("openai/gpt-6-astra");
 		expect(astra.name).toBe("GPT-6 Astra");
 		expect(astra.compat).toEqual({
-			vercelGatewayRouting: { order: ["openai"] },
+			vercelGatewayRouting: { only: ["openai"] },
 			forceAdaptiveThinking: true,
 		});
 		// Effort semantics stay Claude-only: no mid-convo effort beta on astra.
@@ -197,18 +198,18 @@ describe("withGatewayCompatModels", () => {
 	it("overlays gateway Claude models resolved by identity", () => {
 		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
-				vercelGatewayRouting: { order: ["anthropic"] },
+				vercelGatewayRouting: { only: ["anthropic"] },
 				supportsMidConvoEffort: true,
 			});
 		}
 		const sonnet = models.getModel("vercel-ai-gateway", "anthropic/claude-sonnet-5");
-		expect(sonnet?.compat).toMatchObject({ vercelGatewayRouting: { order: ["anthropic"] } });
+		expect(sonnet?.compat).toMatchObject({ vercelGatewayRouting: { only: ["anthropic"] } });
 		expect(sonnet?.compat).not.toHaveProperty("supportsMidConvoEffort");
 	});
 
 	it("overlays astra resolved by identity (routing pin + adaptive thinking + full effort map)", () => {
 		const astra = models.getModel("vercel-ai-gateway", "openai/gpt-6-astra");
-		expect(astra?.compat).toEqual({ vercelGatewayRouting: { order: ["openai"] }, forceAdaptiveThinking: true });
+		expect(astra?.compat).toEqual({ vercelGatewayRouting: { only: ["openai"] }, forceAdaptiveThinking: true });
 		expect(astra?.thinkingLevelMap).toEqual({
 			off: null,
 			minimal: null,
@@ -234,6 +235,57 @@ describe("withGatewayCompatModels", () => {
 		// Delegation stays intact for everything the harness also uses.
 		expect(models.getProviders().length).toBe(builtinModels().getProviders().length);
 		expect(models.getModels("vercel-ai-gateway").length).toBe(builtinModels().getModels("vercel-ai-gateway").length);
+	});
+});
+
+describe("applyGatewayRouting", () => {
+	// The `before_payload` hook body: pi's anthropic-messages adapter ignores
+	// `compat.vercelGatewayRouting` (pi#9211), so this writes the body-level
+	// `providerOptions.gateway` the gateway's /v1/messages actually honors.
+	const resolve = createModelResolver();
+	const opus = resolve({ model: "opus" });
+
+	it("adds providerOptions.gateway.only for a fenced gateway anthropic model, without mutating the payload", () => {
+		const payload = { model: "anthropic/claude-opus-5", messages: [] };
+		const routed = applyGatewayRouting(opus, payload);
+		expect(routed).toEqual({
+			model: "anthropic/claude-opus-5",
+			messages: [],
+			providerOptions: { gateway: { only: ["anthropic"] } },
+		});
+		expect(routed).not.toBe(payload);
+		expect(payload).toEqual({ model: "anthropic/claude-opus-5", messages: [] });
+	});
+
+	it("fences astra to openai and preserves sibling providerOptions keys", () => {
+		const routed = applyGatewayRouting(resolve({ model: "astra" }), { providerOptions: { other: 1 } });
+		expect(routed).toEqual({ providerOptions: { other: 1, gateway: { only: ["openai"] } } });
+	});
+
+	it("forwards both only and order when the pin names both, as copies", () => {
+		const only = ["anthropic", "bedrock"];
+		const order = ["anthropic"];
+		const pinned = { ...opus, compat: { vercelGatewayRouting: { only, order } } } as Model<any>;
+		const routed = applyGatewayRouting(pinned, {}) as { providerOptions: { gateway: Record<string, string[]> } };
+		expect(routed.providerOptions.gateway).toEqual({ only: ["anthropic", "bedrock"], order: ["anthropic"] });
+		expect(routed.providerOptions.gateway.only).not.toBe(only);
+		expect(routed.providerOptions.gateway.order).not.toBe(order);
+	});
+
+	it("returns undefined for a gateway model without the pin, an empty pin, or a non-gateway model", () => {
+		expect(applyGatewayRouting(resolve({ model: "luna" }), {})).toBeUndefined();
+		const empty = { ...opus, compat: { vercelGatewayRouting: {} } } as Model<any>;
+		expect(applyGatewayRouting(empty, {})).toBeUndefined();
+		const direct = { ...opus, provider: "anthropic" } as Model<any>;
+		expect(applyGatewayRouting(direct, {})).toBeUndefined();
+	});
+
+	it("returns undefined when providerOptions.gateway is already present or the payload is not an object", () => {
+		const payload = { providerOptions: { gateway: { order: ["bedrock"] } } };
+		expect(applyGatewayRouting(opus, payload)).toBeUndefined();
+		expect(payload).toEqual({ providerOptions: { gateway: { order: ["bedrock"] } } });
+		expect(applyGatewayRouting(opus, undefined)).toBeUndefined();
+		expect(applyGatewayRouting(opus, "body")).toBeUndefined();
 	});
 });
 

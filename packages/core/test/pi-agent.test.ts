@@ -214,8 +214,99 @@ describe("PiAgent.dispatch", () => {
 		await agent.dispatch({ prompt: "go", config: { model: "opus", effort: "high" } });
 
 		expect(seen).toEqual([
-			expect.objectContaining({ supportsMidConvoEffort: true, vercelGatewayRouting: { order: ["anthropic"] } }),
+			expect.objectContaining({ supportsMidConvoEffort: true, vercelGatewayRouting: { only: ["anthropic"] } }),
 		]);
+	});
+
+	describe("before_payload gateway routing hook", () => {
+		// pi's anthropic-messages adapter never sends `compat.vercelGatewayRouting`
+		// (pi#9211), so PiAgent enforces the pin itself via the harness's
+		// `before_payload` hook. The faux provider hands the response factory the
+		// same stream options a real adapter gets, so calling `onPayload` from it
+		// drives the registered hook end-to-end and captures what it returns.
+		interface Captured {
+			input: Record<string, unknown>;
+			snapshot: Record<string, unknown>;
+			output: unknown;
+		}
+
+		async function routeThrough(
+			provider: string,
+			modelId: string,
+			payload: Record<string, unknown> = { model: modelId, messages: [] },
+		): Promise<Captured> {
+			const gateway = fauxProvider({ provider, models: [{ id: modelId }] });
+			const gatewayModels = createModels();
+			gatewayModels.setProvider(gateway.provider);
+			const snapshot = structuredClone(payload);
+			let output: unknown;
+			gateway.setResponses([
+				async (_ctx, options, _state, requestModel) => {
+					output = await options?.onPayload?.(payload, requestModel);
+					return fauxAssistantMessage("done");
+				},
+			]);
+			const agent = new PiAgent({
+				env,
+				models: gatewayModels,
+				resolveModel: () => gateway.getModel(modelId) as Model<string>,
+				systemPrompt: "test",
+			});
+			await agent.dispatch({ prompt: "go", config: { model: modelId, effort: "high" } });
+			return { input: payload, snapshot, output };
+		}
+
+		it("fences a gateway anthropic model to providerOptions.gateway.only = ['anthropic']", async () => {
+			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "anthropic/claude-opus-5");
+
+			expect(output).toEqual({
+				model: "anthropic/claude-opus-5",
+				messages: [],
+				providerOptions: { gateway: { only: ["anthropic"] } },
+			});
+			expect(output).not.toBe(input);
+			// The original payload object is not mutated.
+			expect(input).toEqual(snapshot);
+			expect(input).not.toHaveProperty("providerOptions");
+		});
+
+		it("fences astra to providerOptions.gateway.only = ['openai'], keeping existing providerOptions keys", async () => {
+			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "openai/gpt-6-astra", {
+				model: "openai/gpt-6-astra",
+				providerOptions: { other: { keep: true } },
+			});
+
+			expect(output).toEqual({
+				model: "openai/gpt-6-astra",
+				providerOptions: { other: { keep: true }, gateway: { only: ["openai"] } },
+			});
+			expect(input).toEqual(snapshot);
+		});
+
+		it("leaves a gateway model without the compat pin untouched", async () => {
+			// The harness resolves an unchanged hook to the original payload object.
+			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "openai/gpt-5.6-luna");
+
+			expect(output).toBe(input);
+			expect(input).toEqual(snapshot);
+		});
+
+		it("leaves a non-gateway model untouched", async () => {
+			const { input, snapshot, output } = await routeThrough("anthropic", "anthropic/claude-opus-5");
+
+			expect(output).toBe(input);
+			expect(input).toEqual(snapshot);
+		});
+
+		it("leaves a payload that already carries providerOptions.gateway untouched (no-op once pi sends it)", async () => {
+			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "anthropic/claude-opus-5", {
+				model: "anthropic/claude-opus-5",
+				providerOptions: { gateway: { order: ["bedrock"] } },
+			});
+
+			expect(output).toBe(input);
+			expect(input).toEqual(snapshot);
+		});
 	});
 
 	it("starts a fresh session when not resuming", async () => {

@@ -145,7 +145,13 @@ delegates to pi-ai's own `getEnvApiKey` (every provider pi knows, plus Anthropic
 OAuth-token precedence), so we don't maintain a provider->env map. Provider
 neutrality is preserved by the seam: `createModelResolver({ defaultProvider:
 "anthropic", aliases: {...} })` (or a custom `resolveModel`/`getApiKeyAndHeaders`)
-switches to direct provider access.
+switches to direct provider access. Gateway models are fenced to one backend
+(`compat.vercelGatewayRouting: { only: [...] }`), and `PiAgent` enforces that
+fence through the harness's `before_payload` hook -- writing
+`providerOptions.gateway` into the request body -- because pi-ai's
+anthropic-messages adapter does not send `vercelGatewayRouting` itself
+(earendil-works/pi#9211). A run that silently moved backends would pay a
+full-prefix cache rewrite and lose the beta headers the effort ladder relies on.
 - first-class faux provider + memory session repo = deterministic tests.
 - `Result<T,E>`-everywhere, never-throw, abort-everywhere design aligns with
   "the most reliable engine" better than a throw-based SDK.
