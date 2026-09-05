@@ -167,7 +167,8 @@ run options:
   -C, --dir <path>        Target repository (default: current directory)
       --from <ref>        Ref to fork the worktree from (default: HEAD; e.g.
                           "main" to fork from main regardless of the checkout)
-      --model <name>      Base model: alias (haiku/sonnet/opus/fable/luna/terra/glm) or provider:id
+      --model <name>      Base model: alias (haiku/sonnet/opus/fable/astra/luna/terra/glm)
+                          or provider:id
       --effort <level>    Base reasoning effort: low|medium|high|xhigh|max
                           (default: high when omitted)
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)

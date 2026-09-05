@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildEscalationLadder, EFFORT_LADDER, escalate, makeEscalator } from "../src/escalation.ts";
+import {
+	buildEscalationLadder,
+	DEFAULT_STRONG_MODEL,
+	DEFAULT_WEAK_TIER,
+	EFFORT_LADDER,
+	escalate,
+	makeEscalator,
+} from "../src/escalation.ts";
 import type { Effort } from "../src/types.ts";
 
 // Ported from forge's escalation.test.ts (A4 parity), adapted to anvil's
@@ -54,6 +61,17 @@ describe("buildEscalationLadder", () => {
 		]);
 	});
 
+	it("treats astra as a strong base (not weak-tier) that is not the default strong tier", () => {
+		expect(DEFAULT_WEAK_TIER.test("astra")).toBe(false);
+		expect(DEFAULT_WEAK_TIER.test("openai/gpt-6-astra")).toBe(false);
+		expect(DEFAULT_STRONG_MODEL).toBe("fable");
+		expect(buildEscalationLadder({ model: "astra", effort: "high" })).toEqual([
+			{ model: "astra", effort: "high" },
+			{ model: "astra", effort: "xhigh" },
+			{ model: "astra", effort: "max" },
+		]);
+	});
+
 	it("does not escalate a top-tier base (opus@max is a singleton ladder)", () => {
 		expect(buildEscalationLadder({ model: "opus", effort: "max" })).toEqual([{ model: "opus", effort: "max" }]);
 	});
@@ -104,8 +122,18 @@ describe("buildEscalationLadder with supportedEfforts (catalog clamping, #31)", 
 		luna: ["low", "medium", "high", "xhigh"],
 		sonnet: ["low", "medium", "high", "xhigh", "max"],
 		opus: ["low", "medium", "high", "xhigh", "max"],
+		// astra's full map comes from anvil's gateway overlay, not pi's catalog.
+		astra: ["low", "medium", "high", "xhigh", "max"],
 	};
 	const supportedEfforts = (model: string) => catalog[model];
+
+	it("climbs effort only for an astra@high base (no model switch, no clamping): high -> xhigh -> max", () => {
+		expect(buildEscalationLadder({ model: "astra", effort: "high" }, { supportedEfforts })).toEqual([
+			{ model: "astra", effort: "high" },
+			{ model: "astra", effort: "xhigh" },
+			{ model: "astra", effort: "max" },
+		]);
+	});
 
 	it("skips rungs above the strong model's ceiling instead of repeating the previous request", () => {
 		// A luna-like strong tier: the raw ladder would end luna@xhigh -> luna@max,

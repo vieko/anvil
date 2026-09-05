@@ -1,4 +1,4 @@
-import type { Api, Model, Models } from "@earendil-works/pi-ai";
+import type { Api, Model, Models, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import { EFFORT_LADDER, type Effort, type SupportedEfforts } from "../index.ts";
@@ -38,6 +38,10 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	luna: "vercel-ai-gateway:openai/gpt-5.6-luna",
 	terra: "vercel-ai-gateway:openai/gpt-5.6-terra",
 	glm: "vercel-ai-gateway:zai/glm-5.3",
+	// Opt-in strong base (1M+ context, OpenAI's strengths); not the default strong
+	// tier: it matches fable on input/output/cache-write but its cache-read is 4x,
+	// which is the criterion that picked fable over opus.
+	astra: "vercel-ai-gateway:openai/gpt-6-astra",
 };
 
 /**
@@ -91,8 +95,22 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 /** Models that verify per-turn effort changes through the gateway (see {@link withGatewayCompat}). */
 const MID_CONVO_EFFORT_MODELS = new Set(["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]);
 
+/** The one `openai/*` gateway model anvil overlays (see {@link withGatewayCompat}). */
+const ASTRA_GATEWAY_ID = "openai/gpt-6-astra";
+
+/** Astra's full effort map; pi's catalog entry names only `xhigh`. */
+const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
+	off: null,
+	minimal: null,
+	low: "low",
+	medium: "medium",
+	high: "high",
+	xhigh: "xhigh",
+	max: "max",
+};
+
 /**
- * anvil-owned compat overlay for Claude on the Vercel AI Gateway, as a clone so
+ * anvil-owned compat overlay for models on the Vercel AI Gateway, as a clone so
  * the shared registry object is never mutated.
  *
  * Every `anthropic/*` model is pinned to Anthropic's own Messages transport:
@@ -103,18 +121,38 @@ const MID_CONVO_EFFORT_MODELS = new Set(["anthropic/claude-opus-5", "anthropic/c
  * effort-only system messages rebuilt on replay, stale signed-thinking
  * prefixes dropped instead of 400ing). pi-ai's catalog enables it only for the
  * native `anthropic` provider, so anvil owns it for the gateway route.
+ *
+ * GPT-6 Astra is pinned to OpenAI's route and gets `forceAdaptiveThinking`
+ * plus the full `low..max` level map: on the gateway pi only sends
+ * `output_config.effort` for this model under adaptive thinking, and only the
+ * levels the map names are selectable (the catalog names just `xhigh`).
+ * `supportsMidConvoEffort` stays Claude-only.
  */
 export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TModel {
-	if (model.provider !== "vercel-ai-gateway" || !model.id.startsWith("anthropic/")) return model;
-	return {
-		...model,
-		// Cast: `Model<any>["compat"]` collapses to `never` for an unresolved api.
-		compat: {
-			...model.compat,
-			vercelGatewayRouting: { order: ["anthropic"] },
-			...(MID_CONVO_EFFORT_MODELS.has(model.id) ? { supportsMidConvoEffort: true } : {}),
-		} as TModel["compat"],
-	};
+	if (model.provider !== "vercel-ai-gateway") return model;
+	// Cast: `Model<any>["compat"]` collapses to `never` for an unresolved api.
+	if (model.id.startsWith("anthropic/")) {
+		return {
+			...model,
+			compat: {
+				...model.compat,
+				vercelGatewayRouting: { order: ["anthropic"] },
+				...(MID_CONVO_EFFORT_MODELS.has(model.id) ? { supportsMidConvoEffort: true } : {}),
+			} as TModel["compat"],
+		};
+	}
+	if (model.id === ASTRA_GATEWAY_ID) {
+		return {
+			...model,
+			thinkingLevelMap: { ...ASTRA_THINKING_LEVELS },
+			compat: {
+				...model.compat,
+				vercelGatewayRouting: { order: ["openai"] },
+				forceAdaptiveThinking: true,
+			} as TModel["compat"],
+		};
+	}
+	return model;
 }
 
 /**
