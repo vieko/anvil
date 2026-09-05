@@ -98,6 +98,37 @@ describe("PiAgent.dispatch", () => {
 		expect(res.usage?.output).toBeGreaterThan(control.usage?.output ?? 0);
 	});
 
+	it("prices each turn against the resolved model's cost table and sums it into usage.cost", async () => {
+		// The faux model bills $1/M for input and output, $0 for cache: with the
+		// dispatch's own token totals in hand, the expected cost is exact.
+		faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("the outcome is done"),
+		]);
+		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const res = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
+
+		const usage = res.usage;
+		if (!usage) throw new Error("expected usage");
+		expect(usage.cost).toBeGreaterThan(0);
+		expect(usage.cost).toBeCloseTo((usage.input + usage.output) / 1_000_000, 12);
+	});
+
+	it("leaves usage.cost undefined (never 0) when the resolved model has no cost table", async () => {
+		faux.setResponses([fauxAssistantMessage("the outcome is done")]);
+		const { cost: _cost, ...uncosted } = model as Model<string> & { cost: unknown };
+		const agent = new PiAgent({
+			env,
+			models,
+			resolveModel: () => uncosted as Model<string>,
+			systemPrompt: "test",
+		});
+		const res = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
+
+		expect(res.usage?.output).toBeGreaterThan(0);
+		expect(res.usage?.cost).toBeUndefined();
+	});
+
 	it("resolves the model per dispatch from the injected config (provider-agnostic)", async () => {
 		faux.setResponses([fauxAssistantMessage("a"), fauxAssistantMessage("b")]);
 		const seen: ModelEffort[] = [];

@@ -35,6 +35,12 @@ export interface TokenUsage {
 	cacheRead: number;
 	/** Cache-write tokens, when the provider reports them (#12 Tier 3 usage accounting). */
 	cacheWrite?: number;
+	/**
+	 * USD cost of this usage, unrounded, when the model has a price table. Priced
+	 * by the agent implementation (see `@anvil/core/node`), never re-derived from
+	 * tokens here: the pure engine only sums it.
+	 */
+	cost?: number;
 }
 
 export interface AgentDispatch {

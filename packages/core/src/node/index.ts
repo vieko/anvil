@@ -34,4 +34,5 @@ export {
 	createWriteTool,
 	defaultTools,
 } from "./tools.ts";
+export { longCacheRetention, messageCost } from "./usage-cost.ts";
 export { WorktreeWorkspace, type WorktreeWorkspaceOptions } from "./worktree-workspace.ts";

@@ -59,6 +59,8 @@ export interface RunToGateResult {
 	gateCommands?: string[];
 	/** Per-attempt history for this run, oldest first (#12 Tier 3). Same array as {@link RunRecord.attempts}. */
 	timeline: AttemptRecord[];
+	/** Cumulative usage (tokens + cost) across the timeline; same sum as {@link RunRecord.usage}. */
+	usage?: TokenUsage;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -148,6 +150,7 @@ export async function runToGate(
 				attempts: prev.attempt + 1,
 				finalConfig: prev.config,
 				timeline: prev.attempts ?? [],
+				usage: prev.usage,
 			};
 		}
 		if (prev?.state === "failed") {
@@ -158,6 +161,7 @@ export async function runToGate(
 				finalConfig: prev.config,
 				errors: prev.errors,
 				timeline: prev.attempts ?? [],
+				usage: prev.usage,
 			};
 		}
 		if (prev) {
@@ -232,6 +236,7 @@ export async function runToGate(
 				finalConfig: config,
 				errors: lastErrors,
 				timeline: attempts,
+				usage: sumUsage(attempts),
 			};
 		}
 
@@ -253,6 +258,7 @@ export async function runToGate(
 				finalConfig: config,
 				errors: lastErrors,
 				timeline: attempts,
+				usage: sumUsage(attempts),
 			};
 		}
 
@@ -271,6 +277,7 @@ export async function runToGate(
 				finalConfig: config,
 				gateCommands,
 				timeline: attempts,
+				usage: sumUsage(attempts),
 			};
 		}
 
@@ -301,6 +308,7 @@ export async function runToGate(
 		errors: lastErrors,
 		gateCommands,
 		timeline: attempts,
+		usage: sumUsage(attempts),
 	};
 }
 
@@ -325,11 +333,15 @@ function finishAttempt(entry: AttemptRecord, verdict: AttemptRecord["verdict"], 
 	entry.endedAt = new Date().toISOString();
 }
 
-/** Cumulative usage across every attempt that has one (#12 Tier 3 -- RunRecord.usage is now this sum, not the last dispatch's). */
+/**
+ * Cumulative usage across every attempt that has one (#12 Tier 3 -- RunRecord.usage
+ * is now this sum, not the last dispatch's). `cost` sums only the attempts that
+ * priced one and stays undefined when none did: unknown spend is never reported as $0.
+ */
 function sumUsage(attempts: AttemptRecord[]): TokenUsage | undefined {
 	const withUsage = attempts.filter((a) => a.usage !== undefined);
 	if (withUsage.length === 0) return undefined;
-	return withUsage.reduce<TokenUsage>(
+	const total = withUsage.reduce<TokenUsage>(
 		(sum, a) => ({
 			input: sum.input + (a.usage?.input ?? 0),
 			output: sum.output + (a.usage?.output ?? 0),
@@ -338,6 +350,9 @@ function sumUsage(attempts: AttemptRecord[]): TokenUsage | undefined {
 		}),
 		{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	);
+	const costs = withUsage.map((a) => a.usage?.cost).filter((c): c is number => c !== undefined);
+	if (costs.length > 0) total.cost = costs.reduce((sum, c) => sum + c, 0);
+	return total;
 }
 
 /** Outcome-driven retry prompt: fix the root cause, do not work around the checks. */

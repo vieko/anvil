@@ -34,7 +34,7 @@ export interface RunOptions {
 
 export type Command =
 	| { kind: "run"; outcome: string; options: RunOptions }
-	| { kind: "status"; dir?: string; json: boolean }
+	| { kind: "status"; dir?: string; json: boolean; since?: string; all: boolean }
 	| { kind: "skills"; action: "list" | "get"; name?: string; full: boolean }
 	| { kind: "help" }
 	| { kind: "version" }
@@ -64,6 +64,8 @@ export function parse(argv: string[]): Command {
 				scope: { type: "string", multiple: true },
 				"no-install": { type: "boolean" },
 				full: { type: "boolean" },
+				since: { type: "string" },
+				all: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
 				verbose: { type: "boolean", short: "v" },
 				// `--reasoning` is display-only (the thinking trace).
@@ -132,8 +134,19 @@ export function parse(argv: string[]): Command {
 				},
 			};
 		}
-		case "status":
-			return { kind: "status", dir, json: (values.json as boolean | undefined) ?? false };
+		case "status": {
+			const since = values.since as string | undefined;
+			if (since !== undefined && parseSince(since, new Date(0)) === null) {
+				return { kind: "error", message: `--since must be a duration (7d, 24h, 90m) or an ISO date (got "${since}")` };
+			}
+			return {
+				kind: "status",
+				dir,
+				json: (values.json as boolean | undefined) ?? false,
+				since,
+				all: (values.all as boolean | undefined) ?? false,
+			};
+		}
 		case "skills": {
 			const action = positionals[1] ?? "list";
 			if (action !== "list" && action !== "get") {
@@ -151,11 +164,25 @@ export function parse(argv: string[]): Command {
 	}
 }
 
+/**
+ * Resolve a `--since` value to the cutoff instant: a duration back from `now`
+ * (`7d`, `24h`, `90m`) or an ISO date. Null when it is neither.
+ */
+export function parseSince(value: string, now: Date): Date | null {
+	const duration = /^(\d+)([dhm])$/.exec(value.trim());
+	if (duration) {
+		const unitMs = { d: 86_400_000, h: 3_600_000, m: 60_000 }[duration[2] as "d" | "h" | "m"];
+		return new Date(now.getTime() - Number(duration[1]) * unitMs);
+	}
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export const HELP = `anvil — define an outcome, the agent works, a deterministic gate decides done.
 
 Usage:
   anvil run <outcome>     Run an outcome to its gate in an isolated worktree
-  anvil status            List recorded runs and their state
+  anvil status            List recorded runs, their state, tokens, and cost
   anvil skills get core   Print the agent usage guide (served by this binary)
   anvil skills list       List the bundled agent guides
   anvil --help            Show this help
@@ -188,4 +215,12 @@ run options:
   -q, --quiet             Print only the final verdict
       --json              Emit a machine-readable JSON result to stdout (human
                           chrome and -v stream go to stderr). Works for run and
-                          status.`;
+                          status.
+
+status options:
+  -C, --dir <path>        Target repository (default: current directory)
+      --since <value>     Only runs updated on/after a duration ago (7d, 24h,
+                          90m) or an ISO date
+      --all               Every repo anvil has run in, rows prefixed with the
+                          repo name (e.g. \`anvil status --all --since 7d\`)
+      --json              The record ledger as a JSON array`;

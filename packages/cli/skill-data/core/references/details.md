@@ -131,7 +131,16 @@ inside the target tree -- so run records and transcripts never show up as
 untracked noise in the repo's `git status` (this is what `anvil status` reads).
 A run whose record is already terminal is recognized there, so durable state
 buys status + not-redoing-passed-work. Each record carries the worktree `branch`
-it lives on, so `anvil status` points you at the result.
+it lives on, so `anvil status` points you at the result, and its `usage`
+(tokens + USD `cost`, cumulative across `attempts[].usage`), so spend is visible
+without a gateway dashboard: rows end in `2.3M ctx  $4.21` (context tokens =
+input + cacheRead + cacheWrite; either omitted when unknown) and a footer totals
+`N runs, P passed, F failed, $X.XX`. `--since <7d|24h|90m|ISO date>` keeps only
+records updated on/after that instant; `--all` reads every repo bucket under the
+state root, prefixing rows with the repo name (`anvil status --all --since 7d`).
+Cost is priced by anvil from the resolved model's table, not pi's `usage.cost`:
+under `PI_CACHE_RETENTION=long` every Anthropic cache write is a 1h write billed
+at 2x input, which pi misses through the Vercel AI Gateway (earendil-works/pi#9210).
 
 ## Machine-readable output (`--json`)
 
@@ -139,14 +148,17 @@ For script/agent callers, both commands take `--json` (human chrome and the
 `-v` stream move to stderr; the JSON goes to stdout, exit codes unchanged):
 
 - `anvil run --json` -> one object:
-  `{ id, passed, attempts, timeline, finalModel, finalEffort, branch,
+  `{ id, passed, attempts, timeline, usage?, finalModel, finalEffort, branch,
      gate: { commands, source }, contract, scope, errors? }`.
   `timeline` is the per-attempt history (#12 Tier 3): one entry per attempt with
   its dispatched `config`, `verdict` (`passed`/`failed`/`retrying`/`void`/
-  `dispatch-failed`), its own `usage`, and `startedAt`/`endedAt`. `attempts`
+  `dispatch-failed`), its own `usage` (`input`, `output`, `cacheRead`,
+  `cacheWrite`, and USD `cost`, absent when the model has no price table), and
+  `startedAt`/`endedAt`. The top-level `usage` is the cumulative sum. `attempts`
   stays the plain count for compatibility.
 - `anvil status --json` -> the record ledger as a JSON array (each record's
-  `attempts` field is that same per-attempt history).
+  `attempts` field is that same per-attempt history; `--since`/`--all` apply, and
+  with `--all` each record gains a `repo` name).
 
 ### Routing trust from a green (gate provenance)
 

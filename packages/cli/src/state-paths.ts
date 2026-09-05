@@ -47,3 +47,31 @@ export function repoStateDirs(
 	const base = join(stateRoot(env), encodeRepoPath(repoRoot));
 	return { runsDir: join(base, "runs"), sessionsDir: join(base, "sessions") };
 }
+
+/**
+ * Best-effort inverse of {@link encodeRepoPath}: the repo's basename. The
+ * encoding is lossy (a '-' inside a directory name and a separator both became
+ * '-'), so every decoding whose prefixes exist on disk (`isDir`) is tried --
+ * from a missing prefix only the dash-join can still lead to a real directory,
+ * which keeps the search small -- and the last segment stands in when none does.
+ */
+export function decodeRepoBasename(encoded: string, isDir: (path: string) => boolean = () => false): string {
+	const segments = encoded.replace(/^--/, "").replace(/--$/, "").split("-");
+	if (segments.length === 0 || segments[0] === "") return encoded;
+	let candidates = [{ path: "", name: "", exists: true }];
+	for (const segment of segments) {
+		const next: typeof candidates = [];
+		for (const c of candidates) {
+			if (c.exists) {
+				const path = `${c.path}/${segment}`;
+				next.push({ path, name: segment, exists: isDir(path) });
+			}
+			if (c.path !== "") {
+				const path = `${c.path}-${segment}`;
+				next.push({ path, name: `${c.name}-${segment}`, exists: isDir(path) });
+			}
+		}
+		candidates = next;
+	}
+	return candidates.find((c) => c.exists)?.name ?? segments[segments.length - 1];
+}

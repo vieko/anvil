@@ -153,12 +153,17 @@ test:unit"`) or pass an explicit `--verify`.
   ```bash
   git -C <repo> merge anvil/<id>/<ts>     # or cherry-pick the commit
   ```
-- `anvil status -C <repo>` lists recorded runs (state, attempt, model, branch).
+- `anvil status -C <repo>` lists recorded runs (state, attempt, model) with each
+  run's context tokens and USD cost (`2.3M ctx  $4.21`) and a spend footer
+  (`N runs, P passed, F failed, $X.XX`). `--since 7d|24h|90m|<ISO date>` filters
+  by `updatedAt`; `--all` reads every repo anvil has run in, rows prefixed with the
+  repo name (`anvil status --all --since 7d` is the weekly spend review).
   Run records and transcripts live in a user-level dir (`$XDG_STATE_HOME/anvil`,
   else `~/.anvil`), not in the repo -- so they never dirty its `git status`.
 - For programmatic callers: `anvil run --json` emits
-  `{ id, passed, attempts, finalModel, finalEffort, branch,
-     gate: { commands, source }, contract, scope, errors? }` and
+  `{ id, passed, attempts, timeline, usage, finalModel, finalEffort, branch,
+     gate: { commands, source }, contract, scope, errors? }` (`usage` is the
+  cumulative tokens + USD `cost`; each `timeline[].usage` has its own) and
   `anvil status --json` emits the record ledger as a JSON array. Exit codes are
   unchanged (`0` passed, non-zero failed/inconclusive). The `gate`/`contract`/`scope`
   fields are *provenance*: they tell you how strong a green is (a strong green --

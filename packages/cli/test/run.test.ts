@@ -153,6 +153,74 @@ describe("executeRun", () => {
 		});
 	});
 
+	it("appends the final config and the cumulative cost to the verdict line, omitting $ when unknown", async () => {
+		const priced: Agent = {
+			async dispatch() {
+				return { text: "ok", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 2.106 } };
+			},
+		};
+		const passed = capture();
+		await executeRun(
+			{ id: "feat", prompt: "p", base: { model: "fable", effort: "high" } },
+			opts(),
+			{ agent: priced, workspace: fakeWorkspace(), gate: gate(true), persist: new MemoryStatePersister() },
+			passed.io,
+		);
+		expect(passed.lines).toContain("+ feat: passed in 1 attempt (fable@high) $2.11");
+
+		// Two attempts, each $2.106: the line carries the run's cumulative spend (and the
+		// escalated final config), in -q too.
+		const failed = capture();
+		await executeRun(
+			{ id: "feat", prompt: "p", base: { model: "fable", effort: "high" } },
+			opts({ maxAttempts: 2, quiet: true }),
+			{ agent: priced, workspace: fakeWorkspace(), gate: gate(false, "boom"), persist: new MemoryStatePersister() },
+			failed.io,
+		);
+		expect(failed.lines).toEqual(["x feat: failed after 2 attempts (fable@xhigh) $4.21"]);
+
+		// No priced usage at all: no `$` suffix rather than a misleading $0.00.
+		const unknown = capture();
+		await executeRun(
+			{ id: "feat", prompt: "p", base: { model: "sonnet" } },
+			opts(),
+			{ agent: fakeAgent(), workspace: fakeWorkspace(), gate: gate(true), persist: new MemoryStatePersister() },
+			unknown.io,
+		);
+		expect(unknown.lines).toContain("+ feat: passed in 1 attempt (sonnet@high)");
+	});
+
+	it("--json carries per-attempt cost in timeline[].usage and the cumulative usage at the top level", async () => {
+		let n = 0;
+		const priced: Agent = {
+			async dispatch() {
+				n++;
+				return { text: "ok", usage: { input: 10 * n, output: 5, cacheRead: 100, cacheWrite: 20, cost: 0.25 * n } };
+			},
+		};
+		let verifyCalls = 0;
+		const flaky: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				return verifyCalls === 1
+					? { passed: false, errors: "nope", commands: [] }
+					: { passed: true, errors: "", commands: [] };
+			},
+		};
+		const out: string[] = [];
+		const io: Io = { out: (l) => out.push(l), err: () => {} };
+		const code = await executeRun(
+			{ id: "feat", prompt: "p" },
+			opts({ json: true }),
+			{ agent: priced, workspace: fakeWorkspace(), gate: flaky, persist: new MemoryStatePersister() },
+			io,
+		);
+		expect(code).toBe(0);
+		const payload = JSON.parse(out[0]);
+		expect(payload.timeline.map((a: { usage: { cost: number } }) => a.usage.cost)).toEqual([0.25, 0.5]);
+		expect(payload.usage).toEqual({ input: 30, output: 10, cacheRead: 200, cacheWrite: 40, cost: 0.75 });
+	});
+
 	it("--json includes errors and exits 1 on failure", async () => {
 		const out: string[] = [];
 		const io: Io = { out: (l) => out.push(l), err: () => {} };

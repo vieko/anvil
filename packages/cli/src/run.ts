@@ -63,8 +63,8 @@ export async function executeRun(
 	// warrants human review. `contract`/`scope` are true when the guard was enforced;
 	// since any violation voids the run, on a pass they also mean it *held*.
 	// `timeline` is the run's per-attempt history (#12 Tier 3: config/verdict/usage
-	// per attempt); `attempts` stays the plain count for compatibility. `costUsd`
-	// (pricing the usage) is still deferred -- see issue #12 Tier 2.
+	// per attempt, each usage carrying its USD `cost`); `attempts` stays the plain
+	// count for compatibility; `usage` is the cumulative tokens + cost.
 	if (options.json) {
 		io.out(
 			JSON.stringify({
@@ -72,6 +72,7 @@ export async function executeRun(
 				passed: result.passed,
 				attempts: result.attempts,
 				timeline: result.timeline,
+				...(result.usage ? { usage: result.usage } : {}),
 				finalModel: result.finalConfig.model,
 				finalEffort: result.finalConfig.effort,
 				branch: deps.workspace.branch,
@@ -87,12 +88,18 @@ export async function executeRun(
 		return result.passed ? 0 : 1;
 	}
 
+	// Verdict line: `passed in 1 attempt (fable@high) $4.21` -- the final config and
+	// the cumulative spend (omitted when no attempt priced its usage).
 	const attempts = `${result.attempts} attempt${result.attempts === 1 ? "" : "s"}`;
+	const config = result.finalConfig.effort
+		? `${result.finalConfig.model}@${result.finalConfig.effort}`
+		: result.finalConfig.model;
+	const cost = result.usage?.cost === undefined ? "" : ` $${result.usage.cost.toFixed(2)}`;
 	if (result.passed) {
-		io.out(palettes.out.green(`+ ${outcome.id}: passed in ${attempts}`));
+		io.out(palettes.out.green(`+ ${outcome.id}: passed in ${attempts} (${config})${cost}`));
 		return 0;
 	}
-	io.err(palettes.err.red(`x ${outcome.id}: failed after ${attempts}`));
+	io.err(palettes.err.red(`x ${outcome.id}: failed after ${attempts} (${config})${cost}`));
 	if (result.errors && !options.quiet) io.err(result.errors);
 	return 1;
 }

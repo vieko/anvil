@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parse } from "../src/cli.ts";
+import { parse, parseSince } from "../src/cli.ts";
 
 describe("parse", () => {
 	it("parses an inline run with defaults", () => {
@@ -80,7 +80,13 @@ describe("parse", () => {
 
 	it("parses --json for run and status", () => {
 		expect(parse(["run", "x", "--json"])).toMatchObject({ kind: "run", options: { json: true } });
-		expect(parse(["status", "--json"])).toEqual({ kind: "status", dir: undefined, json: true });
+		expect(parse(["status", "--json"])).toEqual({
+			kind: "status",
+			dir: undefined,
+			json: true,
+			since: undefined,
+			all: false,
+		});
 	});
 
 	it("errors when run has no outcome", () => {
@@ -93,8 +99,20 @@ describe("parse", () => {
 	});
 
 	it("parses status (with optional -C)", () => {
-		expect(parse(["status"])).toEqual({ kind: "status", dir: undefined, json: false });
-		expect(parse(["status", "-C", "/r"])).toEqual({ kind: "status", dir: "/r", json: false });
+		expect(parse(["status"])).toEqual({ kind: "status", dir: undefined, json: false, since: undefined, all: false });
+		expect(parse(["status", "-C", "/r"])).toEqual({
+			kind: "status",
+			dir: "/r",
+			json: false,
+			since: undefined,
+			all: false,
+		});
+	});
+
+	it("parses status --since (duration or ISO date) and --all; rejects a malformed --since", () => {
+		expect(parse(["status", "--since", "7d", "--all"])).toMatchObject({ kind: "status", since: "7d", all: true });
+		expect(parse(["status", "--since", "2026-01-02"])).toMatchObject({ kind: "status", since: "2026-01-02" });
+		expect(parse(["status", "--since", "soon"])).toMatchObject({ kind: "error" });
 	});
 
 	it("handles version, help, no-args, and unknowns", () => {
@@ -103,5 +121,22 @@ describe("parse", () => {
 		expect(parse([])).toEqual({ kind: "help" });
 		expect(parse(["bogus"])).toMatchObject({ kind: "error", message: expect.stringContaining("unknown command") });
 		expect(parse(["run", "x", "--nope"])).toMatchObject({ kind: "error" });
+	});
+});
+
+describe("parseSince", () => {
+	const now = new Date("2026-03-10T12:00:00Z");
+
+	it("resolves d/h/m durations back from now", () => {
+		expect(parseSince("7d", now)?.toISOString()).toBe("2026-03-03T12:00:00.000Z");
+		expect(parseSince("24h", now)?.toISOString()).toBe("2026-03-09T12:00:00.000Z");
+		expect(parseSince("90m", now)?.toISOString()).toBe("2026-03-10T10:30:00.000Z");
+	});
+
+	it("accepts an ISO date and rejects anything else", () => {
+		expect(parseSince("2026-03-01T00:00:00Z", now)?.toISOString()).toBe("2026-03-01T00:00:00.000Z");
+		expect(parseSince("2026-03-01", now)?.getTime()).toBe(Date.parse("2026-03-01"));
+		expect(parseSince("7w", now)).toBeNull();
+		expect(parseSince("yesterday", now)).toBeNull();
 	});
 });

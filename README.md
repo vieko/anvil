@@ -55,7 +55,8 @@ anvil run "..." --verify "npm test"            # explicit gate (repeatable; all 
 anvil run "..." --contract test/parser.test.ts # seed a frozen test the agent must satisfy
 anvil run "..." --scope "src/**"               # fence the agent into these paths
 anvil run "..." --json                         # machine-readable result on stdout
-anvil status                                   # list recorded runs and their state
+anvil status                                   # recorded runs: state, tokens, cost, and a spend total
+anvil status --all --since 7d                  # the week's spend across every repo anvil ran in
 anvil skills get core                          # print the full agent usage guide
 ```
 
@@ -123,9 +124,10 @@ instead of re-reading the diff:
   "passed": true,
   "attempts": 2,
   "timeline": [
-    { "attempt": 0, "config": { "model": "sonnet", "effort": "high" }, "verdict": "retrying", "usage": { "input": 812, "output": 340, "cacheRead": 0 }, "errors": "...", "startedAt": "...", "endedAt": "..." },
-    { "attempt": 1, "config": { "model": "fable", "effort": "high" }, "verdict": "passed", "usage": { "input": 1204, "output": 512, "cacheRead": 6300 }, "startedAt": "...", "endedAt": "..." }
+    { "attempt": 0, "config": { "model": "sonnet", "effort": "high" }, "verdict": "retrying", "usage": { "input": 812, "output": 340, "cacheRead": 0, "cacheWrite": 0, "cost": 0.0087 }, "errors": "...", "startedAt": "...", "endedAt": "..." },
+    { "attempt": 1, "config": { "model": "fable", "effort": "high" }, "verdict": "passed", "usage": { "input": 1204, "output": 512, "cacheRead": 6300, "cacheWrite": 0, "cost": 0.0553 }, "startedAt": "...", "endedAt": "..." }
   ],
+  "usage": { "input": 2016, "output": 852, "cacheRead": 6300, "cacheWrite": 0, "cost": 0.064 },
   "finalModel": "fable",
   "finalEffort": "high",
   "branch": "anvil/parser-tests/lz4k9",
@@ -136,7 +138,18 @@ instead of re-reading the diff:
 ```
 
 `timeline` is the per-attempt history (#12 Tier 3): what each attempt actually
-dispatched, its verdict, and its own usage -- not just the final tally.
+dispatched, its verdict, and its own usage -- not just the final tally. Each
+`usage.cost` is that attempt's USD spend (unrounded; absent when the model has no
+price table), and the top-level `usage` is the cumulative sum; the human verdict
+line shows the same total as `$4.21`. Cost is priced by anvil from the resolved
+model's table: with `PI_CACHE_RETENTION=long` every Anthropic cache write is a 1h
+write billed at 2x input, which pi's own `usage.cost` misses through the Vercel AI
+Gateway (earendil-works/pi#9210).
+
+`anvil status` appends each run's context tokens (`2.3M ctx`) and cost (`$4.21`)
+plus a footer (`N runs, P passed, F failed, $X.XX`); `--since 7d|24h|90m|<ISO>`
+filters by `updatedAt`, and `--all` reads every repo bucket under the state root
+with each row prefixed by its repo name.
 
 ## Drive it from any harness
 

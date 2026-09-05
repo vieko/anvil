@@ -15,6 +15,7 @@ import type { Agent, AgentDispatch, AgentEventSink, AgentResult, Effort, ModelEf
 import { createModelResolver, withGatewayCompatModels } from "./model-resolver.ts";
 import { contextFor } from "./pi-exec.ts";
 import { type AnvilTool, defaultTools } from "./tools.ts";
+import { messageCost } from "./usage-cost.ts";
 
 /** Resolve anvil's (model, effort) to a concrete pi-ai Model. The provider-agnostic seam. */
 export type ModelResolver = (config: ModelEffort) => Model<any>;
@@ -146,7 +147,9 @@ export class PiAgent implements Agent {
 		// 0.85's terminal record carries status and tip ids, not the message.
 		// Usage is the SUM across every turn_end (#12): a dispatch with tool calls
 		// runs several assistant turns before its final answer, and the final
-		// message alone under-reports the dispatch's actual spend by ~99%.
+		// message alone under-reports the dispatch's actual spend by ~99%. Cost is
+		// priced per message against the model anvil resolved (not pi's own
+		// `usage.cost`, see usage-cost.ts) and left undefined when it has no table.
 		let finalMessage: AssistantMessage | undefined;
 		const totalUsage: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 		const unsubscribe = [
@@ -156,6 +159,8 @@ export class PiAgent implements Agent {
 				totalUsage.output += event.message.usage.output;
 				totalUsage.cacheRead += event.message.usage.cacheRead;
 				totalUsage.cacheWrite = (totalUsage.cacheWrite ?? 0) + event.message.usage.cacheWrite;
+				const cost = messageCost(model, event.message.usage);
+				if (cost !== undefined) totalUsage.cost = (totalUsage.cost ?? 0) + cost;
 			}),
 			...this.subscribeActivity(runtime),
 		];

@@ -526,6 +526,68 @@ describe("attempts[] per-attempt history (#12 Tier 3)", () => {
 		const passedRecord = records.find((r) => r.state === "passed");
 		expect(passedRecord?.usage).toEqual({ input: 17, output: 8, cacheRead: 1, cacheWrite: 0 });
 	});
+
+	it("lands per-attempt cost on AttemptRecord.usage and the cumulative sum on RunRecord.usage", async () => {
+		let n = 0;
+		const usages = [
+			{ input: 10, output: 5, cacheRead: 0, cacheWrite: 4, cost: 0.125 },
+			{ input: 7, output: 3, cacheRead: 1, cacheWrite: 0, cost: 0.5 },
+		];
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "x", usage: usages[n++] };
+			},
+		};
+		let verifyCalls = 0;
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				if (verifyCalls === 1) return { passed: false, errors: "nope", commands: [] };
+				return { passed: true, errors: "", commands: [] };
+			},
+		};
+		const records: RunRecord[] = [];
+		const persist: StatePersister = {
+			async save(r) {
+				records.push(structuredClone(r));
+			},
+		};
+
+		const res = await runToGate({ id: "cost1", prompt: "p" }, { agent, workspace: fakeWorkspace(), gate, persist });
+
+		const passedRecord = records.find((r) => r.state === "passed");
+		expect(passedRecord?.attempts.map((a) => a.usage?.cost)).toEqual([0.125, 0.5]);
+		expect(passedRecord?.usage).toEqual({ input: 17, output: 8, cacheRead: 1, cacheWrite: 4, cost: 0.625 });
+		// The interim record after attempt 0 already carries that attempt's cost alone.
+		const retrying = records.find((r) => r.state === "retrying");
+		expect(retrying?.usage?.cost).toBe(0.125);
+		// The result mirrors the record: timeline per attempt, cumulative usage on top.
+		expect(res.timeline.map((a) => a.usage?.cost)).toEqual([0.125, 0.5]);
+		expect(res.usage).toEqual(passedRecord?.usage);
+	});
+
+	it("keeps cumulative cost undefined (never 0) when no attempt priced its usage", async () => {
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "done", usage: { input: 1, output: 1, cacheRead: 0 } };
+			},
+		};
+		const records: RunRecord[] = [];
+		const persist: StatePersister = {
+			async save(r) {
+				records.push(structuredClone(r));
+			},
+		};
+
+		const res = await runToGate(
+			{ id: "nocost", prompt: "p" },
+			{ agent, workspace: fakeWorkspace(), gate: passingGate, persist },
+		);
+
+		expect(res.usage).toEqual({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0 });
+		expect(res.usage?.cost).toBeUndefined();
+		expect(records.find((r) => r.state === "passed")?.usage?.cost).toBeUndefined();
+	});
 });
 
 describe("classifyDispatch", () => {

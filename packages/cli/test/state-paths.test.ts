@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { encodeRepoPath, repoStateDirs, stateRoot } from "../src/state-paths.ts";
+import { decodeRepoBasename, encodeRepoPath, repoStateDirs, stateRoot } from "../src/state-paths.ts";
 
 describe("encodeRepoPath", () => {
 	it("mirrors pi's encodeCwd: strip leading sep, replace separators+colon, wrap in --..--", () => {
@@ -38,5 +38,20 @@ describe("repoStateDirs", () => {
 		const { runsDir, sessionsDir } = repoStateDirs("/Users/me/dev/project", { XDG_STATE_HOME: "/x/state" });
 		expect(runsDir.startsWith("/Users/me/dev/project")).toBe(false);
 		expect(sessionsDir.startsWith("/Users/me/dev/project")).toBe(false);
+	});
+});
+
+describe("decodeRepoBasename", () => {
+	it("returns the last path segment when nothing on disk disambiguates", () => {
+		expect(decodeRepoBasename("--Users-me-dev-project--")).toBe("project");
+	});
+
+	it("re-joins dashed directory names greedily against the filesystem", () => {
+		const dirs = new Set(["/Users", "/Users/me", "/Users/me/dev", "/Users/me/dev/my-repo", "/Users/me/dev/my"]);
+		const isDir = (p: string) => dirs.has(p);
+		// `/Users/me/dev/my` exists too, but `/Users/me/dev/my/repo` does not while
+		// `/Users/me/dev/my-repo` does: the dashed name wins.
+		expect(decodeRepoBasename("--Users-me-dev-my-repo--", isDir)).toBe("my-repo");
+		expect(decodeRepoBasename("--Users-me-dev-my--", isDir)).toBe("my");
 	});
 });
