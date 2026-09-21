@@ -64,7 +64,8 @@ describe("createModelResolver", () => {
 		expect(sonnet.compat).toMatchObject({ vercelGatewayRouting: { only: ["anthropic"] } });
 		expect(sonnet.compat).not.toHaveProperty("supportsMidConvoEffort");
 		const luna = resolve({ model: "vercel-ai-gateway:openai/gpt-5.6-luna" });
-		expect(luna.compat).toBeUndefined();
+		expect(luna.compat).toEqual(getBuiltinModel("vercel-ai-gateway", "openai/gpt-5.6-luna").compat);
+		expect(luna.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
 	});
 
 	it("resolves astra to GPT-6 Astra on the gateway with the routing pin, adaptive thinking, and the full effort map", () => {
@@ -74,6 +75,7 @@ describe("createModelResolver", () => {
 		expect(astra.id).toBe("openai/gpt-6-astra");
 		expect(astra.name).toBe("GPT-6 Astra");
 		expect(astra.compat).toEqual({
+			...getBuiltinModel("vercel-ai-gateway", "openai/gpt-6-astra").compat,
 			vercelGatewayRouting: { only: ["openai"] },
 			forceAdaptiveThinking: true,
 		});
@@ -102,12 +104,13 @@ describe("createModelResolver", () => {
 		expect(astra).not.toBe(registry);
 		expect(astra).toBe(resolve({ model: "vercel-ai-gateway:openai/gpt-6-astra" }));
 		expect(resolve({ model: "astra" })).toBe(resolve({ model: "astra" }));
-		expect(registry.compat).toBeUndefined();
+		expect(registry.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
+		expect(registry.compat ?? {}).not.toHaveProperty("forceAdaptiveThinking");
 		expect(registry.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
 		expect(astra.thinkingLevelMap).not.toBe(registry.thinkingLevelMap);
 		const luna = resolve({ model: "vercel-ai-gateway:openai/gpt-5.6-luna" });
 		expect(luna).toBe(getBuiltinModel("vercel-ai-gateway", "openai/gpt-5.6-luna"));
-		expect(luna.compat).toBeUndefined();
+		expect(luna.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
 		expect(luna.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
 	});
 
@@ -207,9 +210,37 @@ describe("withGatewayCompatModels", () => {
 		expect(sonnet?.compat).not.toHaveProperty("supportsMidConvoEffort");
 	});
 
+	it("mirrors native anthropic strict-tools and mid-convo system flags onto the gateway route", () => {
+		for (const id of [
+			"anthropic/claude-opus-5",
+			"anthropic/claude-fable-5.1",
+			"anthropic/claude-sonnet-5",
+			"anthropic/claude-haiku-4.5",
+		]) {
+			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({ supportsStrictTools: true });
+		}
+		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]) {
+			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
+				supportsMidConvoSystemMessages: true,
+				supportsMidConvoToolChanges: true,
+			});
+		}
+		for (const id of ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4.5"]) {
+			expect(models.getModel("vercel-ai-gateway", id)?.compat).not.toHaveProperty("supportsMidConvoSystemMessages");
+			expect(models.getModel("vercel-ai-gateway", id)?.compat).not.toHaveProperty("supportsMidConvoToolChanges");
+		}
+		expect(models.getModel("vercel-ai-gateway", "openai/gpt-6-astra")?.compat).not.toHaveProperty(
+			"supportsStrictTools",
+		);
+	});
+
 	it("overlays astra resolved by identity (routing pin + adaptive thinking + full effort map)", () => {
 		const astra = models.getModel("vercel-ai-gateway", "openai/gpt-6-astra");
-		expect(astra?.compat).toEqual({ vercelGatewayRouting: { only: ["openai"] }, forceAdaptiveThinking: true });
+		expect(astra?.compat).toEqual({
+			...builtinModels().getModel("vercel-ai-gateway", "openai/gpt-6-astra")?.compat,
+			vercelGatewayRouting: { only: ["openai"] },
+			forceAdaptiveThinking: true,
+		});
 		expect(astra?.thinkingLevelMap).toEqual({
 			off: null,
 			minimal: null,
@@ -226,7 +257,9 @@ describe("withGatewayCompatModels", () => {
 	});
 
 	it("leaves other providers, unknown ids, and the rest of the collection alone", () => {
-		expect(models.getModel("vercel-ai-gateway", "openai/gpt-5.6-luna")?.compat).toBeUndefined();
+		expect(models.getModel("vercel-ai-gateway", "openai/gpt-5.6-luna")?.compat).toEqual(
+			builtinModels().getModel("vercel-ai-gateway", "openai/gpt-5.6-luna")?.compat,
+		);
 		expect(models.getModel("vercel-ai-gateway", "openai/gpt-5.6-luna")?.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
 		expect(models.getModel("anthropic", "claude-opus-4-5")?.compat).toEqual(
 			builtinModels().getModel("anthropic", "claude-opus-4-5")?.compat,

@@ -95,6 +95,17 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 /** Models that verify per-turn effort changes through the gateway (see {@link withGatewayCompat}). */
 const MID_CONVO_EFFORT_MODELS = new Set(["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]);
 
+/**
+ * Models whose native `anthropic` catalog entry accepts mid-conversation
+ * system messages and tool additions/removals (see {@link withGatewayCompat}).
+ */
+const MID_CONVO_SYSTEM_MODELS = new Set([
+	"anthropic/claude-fable-5",
+	"anthropic/claude-fable-5.1",
+	"anthropic/claude-opus-4.8",
+	"anthropic/claude-opus-5",
+]);
+
 /** The one `openai/*` gateway model anvil overlays (see {@link withGatewayCompat}). */
 const ASTRA_GATEWAY_ID = "openai/gpt-6-astra";
 
@@ -126,6 +137,16 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * it only for the native `anthropic` provider, so anvil owns it for the
  * gateway route.
  *
+ * Two more flags the native `anthropic` entries carry and the gateway entries
+ * omit, mirrored here for the same reason (the pin makes the transport the
+ * real Messages API): `supportsStrictTools` on every Claude model, without
+ * which anvil's `strict: "prefer"` tools never go out strict and sonnet-class
+ * models hand back malformed edit arguments (earendil-works/pi#9212); and
+ * `supportsMidConvoSystemMessages` + `supportsMidConvoToolChanges` on the
+ * models that have them natively, so a prompt-section or tool-set change
+ * between turns is a small system patch instead of a full-prefix rewrite
+ * (measured on fable-5.1 via the gateway: cacheWrite 14337 -> 50).
+ *
  * GPT-6 Astra is fenced to OpenAI's route and gets `forceAdaptiveThinking`
  * plus the full `low..max` level map: on the gateway pi only sends
  * `output_config.effort` for this model under adaptive thinking, and only the
@@ -147,7 +168,11 @@ export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TMo
 			compat: {
 				...model.compat,
 				vercelGatewayRouting: { only: ["anthropic"] },
+				supportsStrictTools: true,
 				...(MID_CONVO_EFFORT_MODELS.has(model.id) ? { supportsMidConvoEffort: true } : {}),
+				...(MID_CONVO_SYSTEM_MODELS.has(model.id)
+					? { supportsMidConvoSystemMessages: true, supportsMidConvoToolChanges: true }
+					: {}),
 			} as TModel["compat"],
 		};
 	}
