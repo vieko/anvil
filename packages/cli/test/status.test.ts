@@ -146,19 +146,30 @@ describe("executeStatus stale detection and --prune (#41)", () => {
 		expect(fresh.lines[0]).toContain("> verifying");
 	});
 
-	it("a live pid stays verifying, never stale", async () => {
+	it("a live pid with a recent heartbeat stays verifying, never stale", async () => {
 		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
-		await persist.save(record({ pid: process.pid, updatedAt: "2020-01-01T00:00:00Z" }));
+		await persist.save(record({ pid: process.pid, updatedAt: "2026-01-01T00:00:00Z" }));
 
 		const { io, lines } = capture();
-		expect(await executeStatus(dir, io, { now: new Date("2026-01-01T00:00:00Z") })).toBe(0);
+		expect(await executeStatus(dir, io, { now: new Date("2026-01-01T01:00:00Z") })).toBe(0); // 1h old
 		expect(lines[0]).toContain("> verifying");
+	});
+
+	it("a live pid with a heartbeat older than 24h is stale (pid reuse after a reboot)", async () => {
+		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
+		await persist.save(record({ pid: process.pid, updatedAt: "2026-01-01T00:00:00Z" }));
+
+		const { io, lines } = capture();
+		expect(await executeStatus(dir, io, { now: new Date("2026-01-02T01:00:00Z") })).toBe(0); // 25h old
+		expect(lines[0]).toMatch(/^! stale 1d\s+feat\s/);
 	});
 
 	it("--prune rewrites only stale records to failed with an orphaned note, leaving others untouched", async () => {
 		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
+		const now = new Date("2026-01-17T00:00:00Z");
 		await persist.save(record({ outcomeId: "dead", pid: 999_999 }));
-		await persist.save(record({ outcomeId: "alive", pid: process.pid }));
+		// A recent heartbeat, or the live pid would itself be flagged as reused (>24h idle).
+		await persist.save(record({ outcomeId: "alive", pid: process.pid, updatedAt: now.toISOString() }));
 		await persist.save({
 			outcomeId: "already-passed",
 			state: "passed",
@@ -169,7 +180,6 @@ describe("executeStatus stale detection and --prune (#41)", () => {
 			updatedAt: "2026-01-01T00:00:00Z",
 		});
 
-		const now = new Date("2026-01-17T00:00:00Z");
 		const { io, lines } = capture();
 		expect(await executeStatus(dir, io, { prune: true, now })).toBe(0);
 		expect(lines).toHaveLength(1);
@@ -190,10 +200,11 @@ describe("executeStatus stale detection and --prune (#41)", () => {
 
 	it("--prune reports nothing to do when no row is stale", async () => {
 		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
-		await persist.save(record({ pid: process.pid }));
+		const now = new Date("2026-01-01T00:00:00Z");
+		await persist.save(record({ pid: process.pid, updatedAt: now.toISOString() }));
 
 		const { io, lines } = capture();
-		expect(await executeStatus(dir, io, { prune: true })).toBe(0);
+		expect(await executeStatus(dir, io, { prune: true, now })).toBe(0);
 		expect(lines).toEqual(["no stale runs to prune"]);
 	});
 });
@@ -229,15 +240,15 @@ describe("executeStatus spend ledger", () => {
 				updatedAt: "2026-03-02T00:00:00Z",
 			}),
 		);
-		// A live pid (this test process) keeps a non-terminal, old-updatedAt record
-		// reporting its real state instead of being flagged `stale` (#41) -- this
-		// test is about the spend-ledger columns, not staleness.
+		// A live pid (this test process) with a recent heartbeat keeps a
+		// non-terminal record reporting its real state instead of being flagged
+		// `stale` -- this test is about the spend-ledger columns, not staleness.
 		await persist.save(
 			record({ outcomeId: "bare", state: "running", updatedAt: "2026-03-01T00:00:00Z", pid: process.pid }),
 		);
 
 		const { io, lines } = capture();
-		expect(await executeStatus(dir, io)).toBe(0);
+		expect(await executeStatus(dir, io, { now: new Date("2026-03-01T00:05:00Z") })).toBe(0);
 		expect(lines).toEqual([
 			"+ passed    priced  (attempt 1/3, fable)  2.3M ctx  $4.21",
 			"x failed    tokens-only  (attempt 3/3, sonnet)  812 ctx",

@@ -43,11 +43,8 @@ export interface RunToGateOptions {
 	 */
 	resume?: boolean;
 	/**
-	 * The OS pid of the process driving this run, persisted into every record
-	 * (#41) so a reader can tell a genuinely in-flight run from an orphaned one
-	 * via liveness (`kill -0`) instead of only a heartbeat age. The pure engine
-	 * never reads `process.pid` itself (that would break the runtime-agnostic
-	 * boundary) -- the node surface (`anvil run`) supplies its own pid here.
+	 * OS pid of the driving process, persisted so `status` can check liveness.
+	 * Core never reads `process.pid`; the node surface supplies it.
 	 */
 	pid?: number;
 }

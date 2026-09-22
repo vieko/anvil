@@ -8,18 +8,19 @@ import type { Io } from "./run.ts";
 import { decodeRepoBasename, decodeRepoPath, repoStateDirs, stateRoot } from "./state-paths.ts";
 
 const MARK: Record<string, string> = { passed: "+", failed: "x" };
-/** Distinct mark for a stale row (#41) -- never a real terminal verdict, never plain "in flight". */
+/** Mark for a stale row -- distinct from any terminal verdict or "in flight". */
 const STALE_MARK = "!";
 
 const TERMINAL_STATES: ReadonlySet<RunState> = new Set(["passed", "failed"]);
 
-/**
- * How long a non-terminal record with no `pid` (written before #41, or by a
- * fake in tests) may go without a heartbeat before `status` calls it dead.
- * Records with a `pid` are checked by actual liveness instead and never rely
- * on this constant.
- */
+/** How long a pidless non-terminal record may go without a heartbeat before it's stale. */
 const STALE_AFTER_MS = 30 * 60 * 1000;
+/**
+ * How long a *live*-pid record may go without a heartbeat before it's stale
+ * anyway: the run loop writes on every state transition and no attempt runs
+ * this long, so a live pid this idle is a reused pid, not the original run.
+ */
+const PID_REUSE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 export interface StatusOptions {
 	/** Emit the record ledger as a JSON array instead of rows. */
@@ -30,11 +31,7 @@ export interface StatusOptions {
 	all?: boolean;
 	/** Reference instant for `since` durations and staleness checks. Default: the current time. */
 	now?: Date;
-	/**
-	 * Rewrite every stale row (#41) to `state: "failed"` with an `orphaned:`
-	 * note, print what changed, and print (never run) the `git worktree remove`
-	 * command for its worktree if it still exists. Never deletes anything.
-	 */
+	/** Rewrite every stale row to `failed` with an `orphaned:` note and print what changed; never deletes anything. */
 	prune?: boolean;
 }
 
@@ -95,12 +92,9 @@ export async function executeStatus(dir: string, io: Io, options: StatusOptions 
 }
 
 /**
- * `anvil status --prune` (#41): rewrite every stale row to a terminal
- * `failed` with an `orphaned:` note (so a dead run stops looking in-flight
- * forever), report each rewrite, and print -- never run -- the worktree
- * removal command when that worktree still exists. Branches and worktrees are
- * never touched here; that decision stays with whoever reads the printed
- * command.
+ * Rewrite every stale row to `failed` with an `orphaned:` note and report the
+ * change; print, but never run, its worktree removal command when that
+ * worktree still exists.
  */
 async function prune(rows: StatusRow[], now: Date, io: Io): Promise<number> {
 	const stale = rows.filter((row) => isStale(row.record, now));
@@ -164,15 +158,16 @@ function isDirectory(path: string): boolean {
 }
 
 /**
- * True when a non-terminal record's process is gone (#41): a dead `pid`
- * (`kill -0` fails), or no `pid` at all and `updatedAt` hasn't moved in
- * {@link STALE_AFTER_MS}. Terminal records (`passed`/`failed`) are never
- * stale -- they already answered the "is this done" question.
+ * True when a non-terminal record's process is gone: a dead `pid`, a live
+ * `pid` whose heartbeat is old enough to be a reused pid rather than the
+ * original run, or no `pid` at all with an old heartbeat. Terminal records
+ * are never stale.
  */
 function isStale(record: RunRecord, now: Date): boolean {
 	if (TERMINAL_STATES.has(record.state)) return false;
-	if (record.pid !== undefined) return !isProcessAlive(record.pid);
-	return now.getTime() - Date.parse(record.updatedAt) > STALE_AFTER_MS;
+	const age = now.getTime() - Date.parse(record.updatedAt);
+	if (record.pid !== undefined) return !isProcessAlive(record.pid) || age > PID_REUSE_AFTER_MS;
+	return age > STALE_AFTER_MS;
 }
 
 /** `kill -0`: true if `pid` names a live process (including one we can't signal but that still exists). */
@@ -203,11 +198,7 @@ function usageColumns(usage: TokenUsage | undefined): string {
 	return `  ${formatTokens(ctx)} ctx${cost}`;
 }
 
-/**
- * `N runs, P passed, F failed, S stale, $X.XX` -- `stale` (#41) is omitted
- * when zero, so the common case matches the pre-#41 footer exactly. The `$`
- * total sums known costs and is omitted when none is known.
- */
+/** `N runs, P passed, F failed, S stale, $X.XX` -- `stale` and the `$` total are each omitted when zero/unknown. */
 function footer(records: RunRecord[], now: Date): string {
 	const passed = records.filter((r) => r.state === "passed").length;
 	const failed = records.filter((r) => r.state === "failed").length;
