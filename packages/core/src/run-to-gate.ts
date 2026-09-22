@@ -42,6 +42,11 @@ export interface RunToGateOptions {
 	 * and rebuilding the retry prompt. The caller must supply the same workspace.
 	 */
 	resume?: boolean;
+	/**
+	 * OS pid of the driving process, persisted so `status` can check liveness.
+	 * Core never reads `process.pid`; the node surface supplies it.
+	 */
+	pid?: number;
 }
 
 export interface RunToGateResult {
@@ -131,6 +136,7 @@ export async function runToGate(
 			sessionId,
 			errors: lastErrors,
 			branch: workspace.branch,
+			pid: options.pid,
 			updatedAt: new Date().toISOString(),
 			// Cumulative across every attempt (#12): the sum of attempts[].usage, not
 			// the current dispatch alone -- snapshotted fresh each write so an earlier

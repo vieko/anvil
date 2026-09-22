@@ -138,6 +138,18 @@ input + cacheRead + cacheWrite; either omitted when unknown) and a footer totals
 `N runs, P passed, F failed, $X.XX`. `--since <7d|24h|90m|ISO date>` keeps only
 records updated on/after that instant; `--all` reads every repo bucket under the
 state root, prefixing rows with the repo name (`anvil status --all --since 7d`).
+
+A non-terminal record (`running`/`verifying`/...) is only ever as trustworthy as
+the process behind it: each records the OS `pid` that ran it, and a row whose
+`pid` is dead (or, for a record from before this, whose `updatedAt` hasn't moved
+in 30 minutes) renders as `stale <age>` (e.g. `stale 16d`) with a distinct mark,
+counted separately from `passed`/`failed`/in-flight in the footer. `anvil status
+--prune` rewrites every stale row to `state: "failed"` with `note: "orphaned:
+process gone, marked by anvil status --prune <ISO date>"`, reports what it
+changed, and prints -- but never runs -- the `git worktree remove` command for
+that row's worktree when it's still on disk. It never deletes a worktree or a
+branch itself.
+
 Cost is priced by anvil from the resolved model's table, not pi's `usage.cost`:
 under `PI_CACHE_RETENTION=long` every Anthropic cache write is a 1h write billed
 at 2x input, which pi misses through the Vercel AI Gateway (earendil-works/pi#9210).

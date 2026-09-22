@@ -32,7 +32,12 @@ async function main(): Promise<number> {
 			consoleIo.err(HELP);
 			return 2;
 		case "status":
-			return executeStatus(cmd.dir ?? process.cwd(), consoleIo, { json: cmd.json, since: cmd.since, all: cmd.all });
+			return executeStatus(cmd.dir ?? process.cwd(), consoleIo, {
+				json: cmd.json,
+				since: cmd.since,
+				all: cmd.all,
+				prune: cmd.prune,
+			});
 		case "skills":
 			return executeSkills(cmd.action, cmd.name, cmd.full, consoleIo);
 		case "run": {

@@ -277,8 +277,12 @@ export class WorktreeWorkspace implements Workspace {
 	}
 }
 
-/** Default worktree location: a sibling `<repo>-anvil/<safe-branch>` directory. */
-function defaultWorktreePath(repoRoot: string, branch: string): string {
+/**
+ * Default worktree location: a sibling `<repo>-anvil/<safe-branch>` directory.
+ * Exported (#41) so `anvil status --prune` can point at a stale run's worktree
+ * without re-deriving this naming scheme.
+ */
+export function defaultWorktreePath(repoRoot: string, branch: string): string {
 	const safe = branch.replace(/[^a-zA-Z0-9._-]/g, "-");
 	return join(dirname(repoRoot), `${basename(repoRoot)}-anvil`, safe);
 }

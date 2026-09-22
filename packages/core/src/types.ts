@@ -237,6 +237,10 @@ export interface RunRecord {
 	attempts: AttemptRecord[];
 	/** The worktree branch this run lives on, so `status` can point at the result. */
 	branch?: string;
+	/** OS pid of the process that ran this attempt, so a reader can check liveness instead of only a heartbeat age. */
+	pid?: number;
+	/** Free-text annotation for a record rewritten by tooling (e.g. `anvil status --prune`) rather than the run loop. */
+	note?: string;
 	updatedAt: string;
 }
 
