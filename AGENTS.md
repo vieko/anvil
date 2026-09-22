@@ -60,11 +60,18 @@ pi is an upstream dependency — read it, pin it, vendor it if it breaks you; do
 Three modes; pick the right one:
 
 - **Developing anvil itself** — `npm run dev -- run ...`. Executes the working
-  tree directly via Node's type-stripping and the `source` export condition. No
-  build step, no stale dist. This is also how to drive a Golem when dogfooding
-  anvil on anvil.
-- **Using anvil as a tool on another repo** — install the published package
-  globally: `npm i -g @vieko/anvil`. Kept current by the release pipeline.
+  tree directly via Node's type-stripping and the `anvil-source` export
+  condition (namespaced so a third-party `source` export can never match it,
+  #39). No build step, no stale dist. This is also how to drive a Golem when
+  dogfooding anvil on anvil.
+- **On Vieko's machines** the `anvil` on PATH is the dotfiles shim
+  (`~/.scripts/anvil`), which runs this working tree the same way. Never
+  `npm i -g @vieko/anvil` there: `~/.npm-global/bin` precedes `~/.scripts` in
+  PATH, so a global install silently shadows the shim and pins the machine to
+  a stale release.
+- **Using anvil as a tool on a machine without the checkout** — install the
+  published package globally: `npm i -g @vieko/anvil`. Kept current by the
+  release pipeline.
 - **Occasional or CI use** — `npx @vieko/anvil`. No install required.
 
 `npm link` is discouraged for active development: the linked bin runs `dist/`
