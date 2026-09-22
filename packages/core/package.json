@@ -19,12 +19,12 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
+      "anvil-source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./node": {
-      "source": "./src/node/index.ts",
+      "anvil-source": "./src/node/index.ts",
       "types": "./dist/node/index.d.ts",
       "import": "./dist/node/index.js"
     },

@@ -44,8 +44,8 @@
   ],
   "scripts": {
     "clean": "shx rm -rf dist",
-    "build": "npm run clean && esbuild src/bin.ts --bundle --platform=node --format=esm --target=node22 --conditions=source --external:@earendil-works/* --external:typebox --sourcemap --outfile=dist/bin.js",
-    "dev": "node --conditions=source src/bin.ts",
+    "build": "npm run clean && esbuild src/bin.ts --bundle --platform=node --format=esm --target=node22 --conditions=anvil-source --external:@earendil-works/* --external:typebox --sourcemap --outfile=dist/bin.js",
+    "dev": "node --conditions=anvil-source src/bin.ts",
     "test": "vitest --run",
     "prepublishOnly": "npm run build"
   },
