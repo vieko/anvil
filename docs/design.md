@@ -136,8 +136,9 @@ evidence from a spike:
 ### Default inference path: the Vercel AI Gateway
 
 anvil routes inference through the **Vercel AI Gateway** by default
-(`createModelResolver()`'s logical names — `sonnet`/`opus`/`haiku`, what the
-escalation ladder emits — map to `vercel-ai-gateway:anthropic/claude-*`). One
+(`createModelResolver()`'s logical names — `sonnet`/`opus`/`haiku`/`fable`,
+what the escalation ladder emits, map to `vercel-ai-gateway:anthropic/claude-*`;
+`sol`/`luna`/`terra`/`astra` to `openai/*` and `glm` to `zai/*`). One
 key (`AI_GATEWAY_API_KEY`) across every provider makes cross-provider escalation
 trivial and gives gateway-side spend/observability/rate-limit/fallback handling
 — valuable for an engine that fans out many parallel agents. Key resolution
@@ -202,7 +203,8 @@ Track A (build — the spine is settled, needs no usage data):
   (a focused rewrite), not a library forge consumes — `anvil run` covers forge's
   `run <spec>` common case at parity, proven by ported forge tests. Model
   resolution is settled: `createModelResolver()` maps anvil's
-  logical names (the aliases the ladder emits — sonnet/opus/haiku) and any
+  logical names (the aliases the ladder emits — sonnet/opus/haiku, plus
+  fable/astra/sol/luna/terra/glm) and any
   `provider:model-id` to a concrete pi-ai Model; Anthropic-flavored defaults,
   fully overridable; PiAgent uses it by default, so a real run works given an
   `AI_GATEWAY_API_KEY` (anvil routes through the Vercel AI Gateway by default;
@@ -294,7 +296,7 @@ Decisions are driven by usage data, not speculation. These are intentionally
   case); when `--model` is supplied without `--effort` the engine normalises to
   `high` at the `runToGate` boundary (`DEFAULT_EFFORT`) so attempt 0 always
   reasons at a known level. `--effort low` opts into the gentle ladder
-  (`low → high → fable/high → …`); `--effort max` pins the ceiling.
+  (`low → high → opus/high → …`); `--effort max` pins the ceiling.
 - **Output styling (Pi-harness parity / TTY color).** Considered matching how
   the Pi harness styles agent activity. Rejected the port: Pi's rich look is its
   **interactive TUI** (`@earendil-works/pi-tui` components + themed background

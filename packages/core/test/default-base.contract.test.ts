@@ -4,7 +4,7 @@ import type { Agent, Gate, GateResult, ModelEffort, RunRecord, StatePersister, W
 
 // Frozen contract (anvil dogfood): the DEFAULT base must run sonnet at HIGH
 // effort so attempt 0 reasons by default, and the default-cap escalation ladder
-// must be sonnet/high -> fable/high -> fable/xhigh. Drives runToGate with NO base
+// must be sonnet/high -> opus/high -> opus/xhigh. Drives runToGate with NO base
 // (so it relies on DEFAULT_BASE) and records the dispatched config per attempt.
 
 function fakeWorkspace(): Workspace {
@@ -33,7 +33,7 @@ function nullPersister(): StatePersister {
 }
 
 describe("default base (frozen contract)", () => {
-	it("dispatches sonnet/high on attempt 0, then fable/high, then fable/xhigh", async () => {
+	it("dispatches sonnet/high on attempt 0, then opus/high, then opus/xhigh", async () => {
 		const seen: ModelEffort[] = [];
 		const agent: Agent = {
 			async dispatch(d) {
@@ -59,8 +59,8 @@ describe("default base (frozen contract)", () => {
 		expect(res.passed).toBe(true);
 		expect(seen).toEqual([
 			{ model: "sonnet", effort: "high" },
-			{ model: "fable", effort: "high" },
-			{ model: "fable", effort: "xhigh" },
+			{ model: "opus", effort: "high" },
+			{ model: "opus", effort: "xhigh" },
 		]);
 	});
 });

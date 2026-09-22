@@ -25,7 +25,7 @@ export interface ModelResolverOptions {
  * Default logical aliases. anvil routes through the **Vercel AI Gateway** by
  * default (one key across providers, with gateway-side spend/observability/
  * fallbacks) — the logical names map to Anthropic's Claude tier on the gateway,
- * which is also what the escalation ladder emits (sonnet -> opus). Fully
+ * which is also what the escalation ladder emits (luna/sonnet -> opus). Fully
  * overridable: anvil stays provider-agnostic through this resolver seam (e.g.
  * `createModelResolver({ defaultProvider: "anthropic", aliases: {...} })` for
  * direct provider access).
@@ -33,14 +33,17 @@ export interface ModelResolverOptions {
 export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	haiku: "vercel-ai-gateway:anthropic/claude-haiku-4.5",
 	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-5",
-	opus: "vercel-ai-gateway:anthropic/claude-opus-5",
+	opus: "vercel-ai-gateway:anthropic/claude-opus-5.5",
 	fable: "vercel-ai-gateway:anthropic/claude-fable-5.1",
-	luna: "vercel-ai-gateway:openai/gpt-5.6-luna",
+	luna: "vercel-ai-gateway:openai/gpt-6-luna",
+	// Same rung price as sonnet-5; unlike sonnet through the gateway it does not
+	// drop edit tool bodies in transit (`edits: [{}]`).
+	sol: "vercel-ai-gateway:openai/gpt-6-sol",
 	terra: "vercel-ai-gateway:openai/gpt-5.6-terra",
 	glm: "vercel-ai-gateway:zai/glm-5.3",
 	// Opt-in strong base (1M+ context, OpenAI's strengths); not the default strong
-	// tier: it matches fable on input/output/cache-write but its cache-read is 4x,
-	// which is the criterion that picked fable over opus.
+	// tier: its cache-read rate is 5x opus-5.5's, and cache reads are ~98% of the
+	// strong rung's spend.
 	astra: "vercel-ai-gateway:openai/gpt-6-astra",
 };
 
@@ -93,7 +96,11 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 }
 
 /** Models that verify per-turn effort changes through the gateway (see {@link withGatewayCompat}). */
-const MID_CONVO_EFFORT_MODELS = new Set(["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]);
+const MID_CONVO_EFFORT_MODELS = new Set([
+	"anthropic/claude-opus-5",
+	"anthropic/claude-opus-5.5",
+	"anthropic/claude-fable-5.1",
+]);
 
 /**
  * Models whose native `anthropic` catalog entry accepts mid-conversation
@@ -104,9 +111,10 @@ const MID_CONVO_SYSTEM_MODELS = new Set([
 	"anthropic/claude-fable-5.1",
 	"anthropic/claude-opus-4.8",
 	"anthropic/claude-opus-5",
+	"anthropic/claude-opus-5.5",
 ]);
 
-/** The one `openai/*` gateway model anvil overlays (see {@link withGatewayCompat}). */
+/** The `openai/*` gateway model that gets a thinking overlay on top of the routing pin (see {@link withGatewayCompat}). */
 const ASTRA_GATEWAY_ID = "openai/gpt-6-astra";
 
 /** Astra's full effort map; pi's catalog entry names only `xhigh`. */
@@ -129,9 +137,9 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * `anthropic`, `bedrock`, `claudeaws`, or `vertexAnthropic`, and a run that
  * silently moves backends pays a full-prefix cache rewrite at 1h write rates
  * and loses the beta-header guarantees below. An unattended golem is better
- * served by a loud provider error the retry policy can handle. Opus 5 and
- * Fable 5.1 additionally get `supportsMidConvoEffort`, which is what makes the
- * escalation ladder's effort climb safe on one resumed session (per-turn
+ * served by a loud provider error the retry policy can handle. Opus 5, Opus
+ * 5.5 and Fable 5.1 additionally get `supportsMidConvoEffort`, which is what
+ * makes the escalation ladder's effort climb safe on one resumed session (per-turn
  * effort persisted, effort-only system messages rebuilt on replay, stale
  * signed-thinking prefixes dropped instead of 400ing). pi-ai's catalog enables
  * it only for the native `anthropic` provider, so anvil owns it for the
@@ -147,11 +155,15 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * between turns is a small system patch instead of a full-prefix rewrite
  * (measured on fable-5.1 via the gateway: cacheWrite 14337 -> 50).
  *
- * GPT-6 Astra is fenced to OpenAI's route and gets `forceAdaptiveThinking`
+ * Every `openai/*` model is fenced to OpenAI's route the same way (`only`, not
+ * `order`), so sol / luna / terra / astra never silently move to another
+ * backend mid-run. GPT-6 Astra alone additionally gets `forceAdaptiveThinking`
  * plus the full `low..max` level map: on the gateway pi only sends
  * `output_config.effort` for this model under adaptive thinking, and only the
- * levels the map names are selectable (the catalog names just `xhigh`).
- * `supportsMidConvoEffort` stays Claude-only.
+ * levels the map names are selectable (the catalog names just `xhigh`). Sol
+ * and luna already resolve a usable `off..xhigh` level map from pi's catalog,
+ * so they get the pin and nothing else. `supportsMidConvoEffort` stays
+ * Claude-only.
  *
  * The routing pin is enforced by PiAgent's `before_payload` hook via
  * {@link applyGatewayRouting}, because pi-ai's anthropic-messages adapter does
@@ -176,15 +188,19 @@ export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TMo
 			} as TModel["compat"],
 		};
 	}
-	if (model.id === ASTRA_GATEWAY_ID) {
-		return {
+	if (model.id.startsWith("openai/")) {
+		const pinned = {
 			...model,
-			thinkingLevelMap: { ...ASTRA_THINKING_LEVELS },
 			compat: {
 				...model.compat,
 				vercelGatewayRouting: { only: ["openai"] },
-				forceAdaptiveThinking: true,
 			} as TModel["compat"],
+		};
+		if (model.id !== ASTRA_GATEWAY_ID) return pinned;
+		return {
+			...pinned,
+			thinkingLevelMap: { ...ASTRA_THINKING_LEVELS },
+			compat: { ...pinned.compat, forceAdaptiveThinking: true } as TModel["compat"],
 		};
 	}
 	return model;

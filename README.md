@@ -69,7 +69,7 @@ Key options (`anvil --help` for the rest):
 | `--verify "<cmd>"` | Gate command, repeatable. Omit it and Anvil auto-detects typecheck/build/test from `package.json`. |
 | `--contract <file>` | Seed a check (typically a failing test) into the worktree and **freeze** it: the agent must satisfy it, never edit it. The strongest gate. |
 | `--scope <glob>` | Fence the agent into these paths; a change outside **voids the run**. |
-| `--model <alias\|provider:id>` | Base model: `haiku` / `sonnet` / `opus` / `fable` / `astra` / `luna` / `terra` / `glm`, or a concrete `provider:model-id`. Default `sonnet`. |
+| `--model <alias\|provider:id>` | Base model: `haiku` / `sonnet` / `opus` / `fable` / `astra` / `sol` / `luna` / `terra` / `glm`, or a concrete `provider:model-id`. Default `sonnet`. |
 | `--effort <level>` | Base reasoning effort: `low` / `medium` / `high` / `xhigh` / `max`. Default `high`. |
 | `-n, --max-attempts <n>` | Attempt cap before giving up (default `3`). |
 | `-v, --verbose` | Stream the agent's tool calls + gate progress to stderr. |
@@ -87,7 +87,7 @@ Key options (`anvil --help` for the rest):
    the only vote on "done":
    - **pass** → Anvil commits the work and stops.
    - **fail** → the errors feed the next attempt, and the model escalates
-     (`sonnet` by default, stronger only when the gate keeps failing).
+     (`sonnet` by default, up to `opus` only when the gate keeps failing).
    - **inconclusive** (a flake, a timeout, or no gate) → Anvil re-verifies rather
      than call it a pass.
 4. The loop ends at the attempt cap. State persists outside your repo, so
@@ -125,10 +125,10 @@ instead of re-reading the diff:
   "attempts": 2,
   "timeline": [
     { "attempt": 0, "config": { "model": "sonnet", "effort": "high" }, "verdict": "retrying", "usage": { "input": 812, "output": 340, "cacheRead": 0, "cacheWrite": 0, "cost": 0.0087 }, "errors": "...", "startedAt": "...", "endedAt": "..." },
-    { "attempt": 1, "config": { "model": "fable", "effort": "high" }, "verdict": "passed", "usage": { "input": 1204, "output": 512, "cacheRead": 6300, "cacheWrite": 0, "cost": 0.0553 }, "startedAt": "...", "endedAt": "..." }
+    { "attempt": 1, "config": { "model": "opus", "effort": "high" }, "verdict": "passed", "usage": { "input": 1204, "output": 512, "cacheRead": 6300, "cacheWrite": 0, "cost": 0.0553 }, "startedAt": "...", "endedAt": "..." }
   ],
   "usage": { "input": 2016, "output": 852, "cacheRead": 6300, "cacheWrite": 0, "cost": 0.064 },
-  "finalModel": "fable",
+  "finalModel": "opus",
   "finalEffort": "high",
   "branch": "anvil/parser-tests/lz4k9",
   "gate": { "commands": ["tsc --noEmit", "npm test"], "source": "explicit" },

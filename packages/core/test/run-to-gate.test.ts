@@ -146,9 +146,9 @@ describe("runToGate", () => {
 		expect(seenConfigs).toEqual([
 			{ model: "sonnet", effort: "low" },
 			{ model: "sonnet", effort: "high" },
-			{ model: "fable", effort: "high" },
+			{ model: "opus", effort: "high" },
 		]);
-		expect(res.finalConfig).toEqual({ model: "fable", effort: "high" });
+		expect(res.finalConfig).toEqual({ model: "opus", effort: "high" });
 	});
 
 	it("threads the recorded run id and a 1-based, climbing attempt number to each dispatch", async () => {

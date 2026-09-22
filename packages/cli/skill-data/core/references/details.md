@@ -62,25 +62,27 @@ script directly (`--verify "<pm> run test:unit"`) or pass an explicit
 Each failed attempt strengthens the (model, effort) pair, so a too-weak base
 does not simply loop until the cap:
 
-- a **weak base** (sonnet / haiku / ...) jumps to high effort, then switches to
-  the strong tier (fable), then climbs fable effort:
-  `low -> high -> fable@high -> fable@xhigh -> fable@max`.
-- a **strong base** (fable / opus / astra) climbs effort only — no model
-  switch: `astra@high -> astra@xhigh -> astra@max`.
+- a **weak base** (sonnet / haiku / sol / luna / ...) jumps to high effort,
+  then switches to the strong tier (opus), then climbs opus effort:
+  `low -> high -> opus@high -> opus@xhigh -> opus@max`.
+- a **strong base** (opus / fable / astra) climbs effort only — no model
+  switch: `fable@high -> fable@xhigh -> fable@max`.
 
-With the default cap of 3 attempts, a weak base reaches fable by the final one.
+With the default cap of 3 attempts, a weak base reaches opus by the final one.
 Set the base with `--model` and `--effort`; the climb is automatic. The default
 base is `sonnet` at `high` effort, so the default ladder is
-`sonnet@high -> fable@high -> fable@xhigh`.
+`sonnet@high -> opus@high -> opus@xhigh`.
 
 ## Model aliases
 
-`haiku` / `sonnet` / `opus` / `fable` resolve to current Anthropic models,
-`astra` to GPT-6 Astra (an opt-in strong base for jobs that want 1M+ context or
-OpenAI's strengths; `fable` stays the default strong tier), and `luna` / `terra`
-/ `glm` to budget-tier OpenAI/Z.ai models, all through the Vercel AI Gateway
-(one key, `AI_GATEWAY_API_KEY`). Or pass a concrete `provider:model-id`. The
-default model is `sonnet` (at `high` effort).
+`haiku` / `sonnet` / `opus` / `fable` resolve to current Anthropic models
+(`opus` is Claude Opus 5.5, the default strong tier; `fable` is an opt-in
+strong base), `astra` to GPT-6 Astra (an opt-in strong base for jobs that want
+1M+ context or OpenAI's strengths), `sol` to GPT-6 Sol (sonnet's price on
+OpenAI's route), and `luna` / `terra` / `glm` to budget-tier OpenAI/Z.ai
+models, all through the Vercel AI Gateway (one key, `AI_GATEWAY_API_KEY`). Or
+pass a concrete `provider:model-id`. The default model is `sonnet` (at `high`
+effort).
 
 ## Worktree prep: deps, linked files, contracts, scope
 
