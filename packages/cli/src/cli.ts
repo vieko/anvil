@@ -34,7 +34,7 @@ export interface RunOptions {
 
 export type Command =
 	| { kind: "run"; outcome: string; options: RunOptions }
-	| { kind: "status"; dir?: string; json: boolean; since?: string; all: boolean }
+	| { kind: "status"; dir?: string; json: boolean; since?: string; all: boolean; prune: boolean }
 	| { kind: "skills"; action: "list" | "get"; name?: string; full: boolean }
 	| { kind: "help" }
 	| { kind: "version" }
@@ -66,6 +66,7 @@ export function parse(argv: string[]): Command {
 				full: { type: "boolean" },
 				since: { type: "string" },
 				all: { type: "boolean" },
+				prune: { type: "boolean" },
 				quiet: { type: "boolean", short: "q" },
 				verbose: { type: "boolean", short: "v" },
 				// `--reasoning` is display-only (the thinking trace).
@@ -145,6 +146,7 @@ export function parse(argv: string[]): Command {
 				json: (values.json as boolean | undefined) ?? false,
 				since,
 				all: (values.all as boolean | undefined) ?? false,
+				prune: (values.prune as boolean | undefined) ?? false,
 			};
 		}
 		case "skills": {
@@ -183,6 +185,7 @@ export const HELP = `anvil — define an outcome, the agent works, a determinist
 Usage:
   anvil run <outcome>     Run an outcome to its gate in an isolated worktree
   anvil status            List recorded runs, their state, tokens, and cost
+                          (a non-terminal row whose process is gone shows as stale)
   anvil skills get core   Print the agent usage guide (served by this binary)
   anvil skills list       List the bundled agent guides
   anvil --help            Show this help
@@ -223,4 +226,7 @@ status options:
                           90m) or an ISO date
       --all               Every repo anvil has run in, rows prefixed with the
                           repo name (e.g. \`anvil status --all --since 7d\`)
+      --prune             Rewrite every stale row to failed with an orphaned:
+                          note, and print (never run) its worktree removal
+                          command if that worktree still exists
       --json              The record ledger as a JSON array`;

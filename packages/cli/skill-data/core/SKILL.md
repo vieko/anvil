@@ -157,7 +157,12 @@ test:unit"`) or pass an explicit `--verify`.
   run's context tokens and USD cost (`2.3M ctx  $4.21`) and a spend footer
   (`N runs, P passed, F failed, $X.XX`). `--since 7d|24h|90m|<ISO date>` filters
   by `updatedAt`; `--all` reads every repo anvil has run in, rows prefixed with the
-  repo name (`anvil status --all --since 7d` is the weekly spend review).
+  repo name (`anvil status --all --since 7d` is the weekly spend review). A
+  non-terminal row (`running`/`verifying`/...) whose process is gone renders as
+  `stale <age>` instead, so a dead run never looks in flight forever;
+  `anvil status --prune` rewrites every stale row to `failed` with an
+  `orphaned:` note and prints (never runs) that row's `git worktree remove`
+  command if the worktree still exists.
   Run records and transcripts live in a user-level dir (`$XDG_STATE_HOME/anvil`,
   else `~/.anvil`), not in the repo -- so they never dirty its `git status`.
 - For programmatic callers: `anvil run --json` emits

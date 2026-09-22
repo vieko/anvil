@@ -185,6 +185,34 @@ describe("runToGate", () => {
 		]);
 	});
 
+	it("persists options.pid on every record when given, and omits it otherwise (#41)", async () => {
+		const records: RunRecord[] = [];
+		const persist: StatePersister = {
+			async save(r: RunRecord) {
+				records.push(r);
+			},
+		};
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "done" };
+			},
+		};
+
+		await runToGate(
+			{ id: "with-pid", prompt: "p" },
+			{ agent, workspace: fakeWorkspace(), gate: passingGate, persist },
+			{
+				pid: 4242,
+			},
+		);
+		expect(records.length).toBeGreaterThan(0);
+		expect(records.every((r) => r.pid === 4242)).toBe(true);
+
+		records.length = 0;
+		await runToGate({ id: "no-pid", prompt: "p" }, { agent, workspace: fakeWorkspace(), gate: passingGate, persist });
+		expect(records.every((r) => r.pid === undefined)).toBe(true);
+	});
+
 	it("feeds the gate's error text into the retry prompt (root-cause feedback)", async () => {
 		const prompts: string[] = [];
 		let verifyCalls = 0;

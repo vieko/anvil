@@ -107,6 +107,97 @@ describe("executeStatus", () => {
 	});
 });
 
+describe("executeStatus stale detection and --prune (#41)", () => {
+	const record = (over: Partial<RunRecord>): RunRecord => ({
+		outcomeId: "feat",
+		state: "verifying",
+		attempt: 2,
+		maxAttempts: 3,
+		config: { model: "fable" },
+		attempts: [],
+		updatedAt: "2026-01-01T00:00:00Z",
+		...over,
+	});
+
+	it("renders a non-terminal record with a dead pid as stale, with its age", async () => {
+		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
+		// A pid outside any realistic OS range is guaranteed dead.
+		await persist.save(record({ pid: 999_999 }));
+
+		const { io, lines } = capture();
+		const now = new Date("2026-01-17T00:00:00Z"); // 16 days later
+		expect(await executeStatus(dir, io, { now })).toBe(0);
+		expect(lines[0]).toMatch(/^! stale 16d\s+feat\s/);
+		expect(lines.at(-1)).toBe("1 run, 0 passed, 0 failed, 1 stale");
+	});
+
+	it("renders a pidless non-terminal record older than the threshold as stale", async () => {
+		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
+		await persist.save(record({ updatedAt: "2026-01-01T00:00:00Z" })); // no pid
+
+		const stale = capture();
+		const past31m = new Date("2026-01-01T00:31:00Z");
+		expect(await executeStatus(dir, stale.io, { now: past31m })).toBe(0);
+		expect(stale.lines[0]).toMatch(/^! stale 31m\s+feat\s/);
+
+		const fresh = capture();
+		const past29m = new Date("2026-01-01T00:29:00Z");
+		await executeStatus(dir, fresh.io, { now: past29m });
+		expect(fresh.lines[0]).toContain("> verifying");
+	});
+
+	it("a live pid stays verifying, never stale", async () => {
+		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
+		await persist.save(record({ pid: process.pid, updatedAt: "2020-01-01T00:00:00Z" }));
+
+		const { io, lines } = capture();
+		expect(await executeStatus(dir, io, { now: new Date("2026-01-01T00:00:00Z") })).toBe(0);
+		expect(lines[0]).toContain("> verifying");
+	});
+
+	it("--prune rewrites only stale records to failed with an orphaned note, leaving others untouched", async () => {
+		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
+		await persist.save(record({ outcomeId: "dead", pid: 999_999 }));
+		await persist.save(record({ outcomeId: "alive", pid: process.pid }));
+		await persist.save({
+			outcomeId: "already-passed",
+			state: "passed",
+			attempt: 0,
+			maxAttempts: 3,
+			config: { model: "fable" },
+			attempts: [],
+			updatedAt: "2026-01-01T00:00:00Z",
+		});
+
+		const now = new Date("2026-01-17T00:00:00Z");
+		const { io, lines } = capture();
+		expect(await executeStatus(dir, io, { prune: true, now })).toBe(0);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain("pruned");
+		expect(lines[0]).toContain("dead");
+
+		const records = await persist.list();
+		const dead = records.find((r) => r.outcomeId === "dead");
+		const alive = records.find((r) => r.outcomeId === "alive");
+		const passed = records.find((r) => r.outcomeId === "already-passed");
+		expect(dead?.state).toBe("failed");
+		expect(dead?.note).toBe(`orphaned: process gone, marked by anvil status --prune ${now.toISOString()}`);
+		expect(alive?.state).toBe("verifying");
+		expect(alive?.note).toBeUndefined();
+		expect(passed?.state).toBe("passed");
+		expect(passed?.note).toBeUndefined();
+	});
+
+	it("--prune reports nothing to do when no row is stale", async () => {
+		const persist = new FileStatePersister({ dir: repoStateDirs(dir).runsDir });
+		await persist.save(record({ pid: process.pid }));
+
+		const { io, lines } = capture();
+		expect(await executeStatus(dir, io, { prune: true })).toBe(0);
+		expect(lines).toEqual(["no stale runs to prune"]);
+	});
+});
+
 describe("executeStatus spend ledger", () => {
 	const record = (over: Partial<RunRecord>): RunRecord => ({
 		outcomeId: "feat",
@@ -138,7 +229,12 @@ describe("executeStatus spend ledger", () => {
 				updatedAt: "2026-03-02T00:00:00Z",
 			}),
 		);
-		await persist.save(record({ outcomeId: "bare", state: "running", updatedAt: "2026-03-01T00:00:00Z" }));
+		// A live pid (this test process) keeps a non-terminal, old-updatedAt record
+		// reporting its real state instead of being flagged `stale` (#41) -- this
+		// test is about the spend-ledger columns, not staleness.
+		await persist.save(
+			record({ outcomeId: "bare", state: "running", updatedAt: "2026-03-01T00:00:00Z", pid: process.pid }),
+		);
 
 		const { io, lines } = capture();
 		expect(await executeStatus(dir, io)).toBe(0);

@@ -86,6 +86,7 @@ describe("parse", () => {
 			json: true,
 			since: undefined,
 			all: false,
+			prune: false,
 		});
 	});
 
@@ -99,14 +100,26 @@ describe("parse", () => {
 	});
 
 	it("parses status (with optional -C)", () => {
-		expect(parse(["status"])).toEqual({ kind: "status", dir: undefined, json: false, since: undefined, all: false });
+		expect(parse(["status"])).toEqual({
+			kind: "status",
+			dir: undefined,
+			json: false,
+			since: undefined,
+			all: false,
+			prune: false,
+		});
 		expect(parse(["status", "-C", "/r"])).toEqual({
 			kind: "status",
 			dir: "/r",
 			json: false,
 			since: undefined,
 			all: false,
+			prune: false,
 		});
+	});
+
+	it("parses status --prune", () => {
+		expect(parse(["status", "--prune"])).toMatchObject({ kind: "status", prune: true });
 	});
 
 	it("parses status --since (duration or ISO date) and --all; rejects a malformed --since", () => {

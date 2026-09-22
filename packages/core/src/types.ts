@@ -237,6 +237,21 @@ export interface RunRecord {
 	attempts: AttemptRecord[];
 	/** The worktree branch this run lives on, so `status` can point at the result. */
 	branch?: string;
+	/**
+	 * The OS pid of the process that ran this attempt (#41), so a reader (`anvil
+	 * status`) can tell a genuinely in-flight run from one whose process is gone
+	 * without a heartbeat window. Optional: records written before #41, and
+	 * fakes in tests, simply omit it -- they fall back to the `updatedAt` age
+	 * check instead.
+	 */
+	pid?: number;
+	/**
+	 * Free-text annotation for a record that was rewritten by tooling rather than
+	 * the run loop itself (#41's `anvil status --prune`, e.g. "orphaned: process
+	 * gone, marked by anvil status --prune <ISO date>"). Unset for records the
+	 * loop wrote directly.
+	 */
+	note?: string;
 	updatedAt: string;
 }
 

@@ -51,7 +51,9 @@ export async function executeRun(
 	io: Io,
 	palettes: Palettes = plainPalettes,
 ): Promise<number> {
-	const result = await runToGate(outcome, deps, { maxAttempts: options.maxAttempts });
+	// process.pid: the record's liveness pid (#41). Supplied here, not inside
+	// @anvil/core, so the pure engine never touches a node global.
+	const result = await runToGate(outcome, deps, { maxAttempts: options.maxAttempts, pid: process.pid });
 
 	// Machine-readable mode: a single JSON object on stdout, regardless of verdict,
 	// so an agent/script caller can assess the outcome without scraping prose.

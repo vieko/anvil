@@ -42,6 +42,14 @@ export interface RunToGateOptions {
 	 * and rebuilding the retry prompt. The caller must supply the same workspace.
 	 */
 	resume?: boolean;
+	/**
+	 * The OS pid of the process driving this run, persisted into every record
+	 * (#41) so a reader can tell a genuinely in-flight run from an orphaned one
+	 * via liveness (`kill -0`) instead of only a heartbeat age. The pure engine
+	 * never reads `process.pid` itself (that would break the runtime-agnostic
+	 * boundary) -- the node surface (`anvil run`) supplies its own pid here.
+	 */
+	pid?: number;
 }
 
 export interface RunToGateResult {
@@ -131,6 +139,7 @@ export async function runToGate(
 			sessionId,
 			errors: lastErrors,
 			branch: workspace.branch,
+			pid: options.pid,
 			updatedAt: new Date().toISOString(),
 			// Cumulative across every attempt (#12): the sum of attempts[].usage, not
 			// the current dispatch alone -- snapshotted fresh each write so an earlier

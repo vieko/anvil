@@ -48,19 +48,24 @@ export function repoStateDirs(
 	return { runsDir: join(base, "runs"), sessionsDir: join(base, "sessions") };
 }
 
+interface DecodedCandidate {
+	path: string;
+	name: string;
+	exists: boolean;
+}
+
 /**
- * Best-effort inverse of {@link encodeRepoPath}: the repo's basename. The
- * encoding is lossy (a '-' inside a directory name and a separator both became
- * '-'), so every decoding whose prefixes exist on disk (`isDir`) is tried --
- * from a missing prefix only the dash-join can still lead to a real directory,
- * which keeps the search small -- and the last segment stands in when none does.
+ * Best-effort inverse of {@link encodeRepoPath}. The encoding is lossy (a '-'
+ * inside a directory name and a separator both became '-'), so every decoding
+ * whose prefixes exist on disk (`isDir`) is tried -- from a missing prefix only
+ * the dash-join can still lead to a real directory, which keeps the search
+ * small -- and the last segment stands in when none does.
  */
-export function decodeRepoBasename(encoded: string, isDir: (path: string) => boolean = () => false): string {
+function decodeCandidates(encoded: string, isDir: (path: string) => boolean): DecodedCandidate[] {
 	const segments = encoded.replace(/^--/, "").replace(/--$/, "").split("-");
-	if (segments.length === 0 || segments[0] === "") return encoded;
-	let candidates = [{ path: "", name: "", exists: true }];
+	let candidates: DecodedCandidate[] = [{ path: "", name: "", exists: true }];
 	for (const segment of segments) {
-		const next: typeof candidates = [];
+		const next: DecodedCandidate[] = [];
 		for (const c of candidates) {
 			if (c.exists) {
 				const path = `${c.path}/${segment}`;
@@ -73,5 +78,24 @@ export function decodeRepoBasename(encoded: string, isDir: (path: string) => boo
 		}
 		candidates = next;
 	}
+	return candidates;
+}
+
+/** Best-effort inverse of {@link encodeRepoPath}: the repo's basename. */
+export function decodeRepoBasename(encoded: string, isDir: (path: string) => boolean = () => false): string {
+	const segments = encoded.replace(/^--/, "").replace(/--$/, "").split("-");
+	if (segments.length === 0 || segments[0] === "") return encoded;
+	const candidates = decodeCandidates(encoded, isDir);
 	return candidates.find((c) => c.exists)?.name ?? segments[segments.length - 1];
+}
+
+/**
+ * Best-effort inverse of {@link encodeRepoPath}: the repo's full absolute path,
+ * used by `anvil status --prune` (#41) to point at a stale run's worktree.
+ * Null when no candidate resolves to a real directory (the repo was moved or
+ * deleted since the run) -- the caller then has nothing trustworthy to print.
+ */
+export function decodeRepoPath(encoded: string, isDir: (path: string) => boolean = () => false): string | null {
+	const candidate = decodeCandidates(encoded, isDir).find((c) => c.exists);
+	return candidate ? candidate.path : null;
 }
