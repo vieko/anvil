@@ -16,10 +16,11 @@ describe("createModelResolver", () => {
 		const resolve = createModelResolver();
 		const opus = resolve({ model: "opus" });
 		expect(opus.provider).toBe("vercel-ai-gateway");
-		expect(opus.id).toBe("anthropic/claude-opus-5");
+		expect(opus.id).toBe("anthropic/claude-opus-5.5");
 		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
-		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-5.6-luna");
+		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-6-luna");
+		expect(resolve({ model: "sol" }).id).toBe("openai/gpt-6-sol");
 		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-5.6-terra");
 		expect(resolve({ model: "glm" }).id).toBe("zai/glm-5.3");
 		expect(resolve({ model: "fable" }).id).toBe("anthropic/claude-fable-5.1");
@@ -58,14 +59,69 @@ describe("createModelResolver", () => {
 		expect(opus5.provider).toBe("vercel-ai-gateway");
 	});
 
+	it("resolves opus to Claude Opus 5.5 on the gateway with the full Claude overlay", () => {
+		const resolve = createModelResolver();
+		const opus = resolve({ model: "opus" });
+		expect(opus.id).toBe("anthropic/claude-opus-5.5");
+		expect(opus.name).toBe("Claude Opus 5.5");
+		expect(opus.compat).toMatchObject({
+			vercelGatewayRouting: { only: ["anthropic"] },
+			supportsStrictTools: true,
+			supportsMidConvoEffort: true,
+			supportsMidConvoSystemMessages: true,
+			supportsMidConvoToolChanges: true,
+			// The registry's own compat survives the shallow merge.
+			forceAdaptiveThinking: true,
+			supportsTemperature: false,
+		});
+		// Pin the gateway terms the strong tier was picked on: cheaper than
+		// fable-5.1 on cache-read (0.20 vs 0.25), cache-write (5 vs 12.5) and
+		// output (20 vs 50), on a ~98% cache-read rung.
+		expect(opus.cost).toEqual({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 });
+		const fable = resolve({ model: "fable" });
+		expect(fable.cost.cacheRead).toBeGreaterThan(opus.cost.cacheRead);
+		expect(fable.cost.cacheWrite).toBeGreaterThan(opus.cost.cacheWrite);
+		expect(fable.cost.output).toBeGreaterThan(opus.cost.output);
+	});
+
 	it("applies the Claude gateway overlay only to Anthropic models", () => {
 		const resolve = createModelResolver();
 		const sonnet = resolve({ model: "vercel-ai-gateway:anthropic/claude-sonnet-5" });
 		expect(sonnet.compat).toMatchObject({ vercelGatewayRouting: { only: ["anthropic"] } });
 		expect(sonnet.compat).not.toHaveProperty("supportsMidConvoEffort");
-		const luna = resolve({ model: "vercel-ai-gateway:openai/gpt-5.6-luna" });
-		expect(luna.compat).toEqual(getBuiltinModel("vercel-ai-gateway", "openai/gpt-5.6-luna").compat);
-		expect(luna.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
+		const luna = resolve({ model: "vercel-ai-gateway:openai/gpt-6-luna" });
+		expect(luna.compat).not.toHaveProperty("supportsStrictTools");
+		expect(luna.compat).not.toHaveProperty("supportsMidConvoEffort");
+		expect(luna.compat).not.toHaveProperty("supportsMidConvoSystemMessages");
+		expect(luna.compat).not.toHaveProperty("supportsMidConvoToolChanges");
+		const zai = resolve({ model: "glm" });
+		expect(zai.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
+		expect(zai).toBe(getBuiltinModel("vercel-ai-gateway", "zai/glm-5.3"));
+	});
+
+	it("fences every openai/* gateway model to OpenAI's route; only astra gets a thinking overlay", () => {
+		const resolve = createModelResolver();
+		for (const [alias, id] of [
+			["sol", "openai/gpt-6-sol"],
+			["luna", "openai/gpt-6-luna"],
+			["terra", "openai/gpt-5.6-terra"],
+		] as const) {
+			const model = resolve({ model: alias });
+			const registry = getBuiltinModel("vercel-ai-gateway", id);
+			expect(model.provider).toBe("vercel-ai-gateway");
+			expect(model.id).toBe(id);
+			expect(model.compat).toEqual({ ...registry.compat, vercelGatewayRouting: { only: ["openai"] } });
+			expect(model.compat).not.toHaveProperty("forceAdaptiveThinking");
+			// No level map overlay: pi's catalog already makes off..xhigh selectable.
+			expect(model.thinkingLevelMap).toBe(registry.thinkingLevelMap);
+			expect(getSupportedThinkingLevels(model)).toEqual(["off", "minimal", "low", "medium", "high", "xhigh"]);
+			// A clone: the shared registry object never grows the pin.
+			expect(model).not.toBe(registry);
+			expect(registry.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
+		}
+		// sol matches sonnet's rung price on the gateway.
+		expect(resolve({ model: "sol" }).cost).toEqual({ input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 });
+		expect(resolve({ model: "luna" }).cost).toEqual({ input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 });
 	});
 
 	it("resolves astra to GPT-6 Astra on the gateway with the routing pin, adaptive thinking, and the full effort map", () => {
@@ -91,13 +147,13 @@ describe("createModelResolver", () => {
 			max: "max",
 		});
 		expect(getSupportedThinkingLevels(astra)).toEqual(["low", "medium", "high", "xhigh", "max"]);
-		// Pin the gateway terms the ladder prices against: same as fable on
-		// input/output/cache-write, 4x on cache-read (why it is not the strong tier).
+		// Pin the gateway terms the ladder prices against: 5x opus-5.5 on
+		// cache-read (why it is not the strong tier).
 		expect(astra.cost).toEqual({ input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 });
 		expect(astra.contextWindow).toBeGreaterThanOrEqual(1_000_000);
 	});
 
-	it("clones astra without mutating the registry, and leaves other openai/* gateway models untouched", () => {
+	it("clones astra without mutating the registry, and pins other openai/* gateway models without a level map", () => {
 		const resolve = createModelResolver();
 		const astra = resolve({ model: "vercel-ai-gateway:openai/gpt-6-astra" });
 		const registry = getBuiltinModel("vercel-ai-gateway", "openai/gpt-6-astra");
@@ -108,9 +164,11 @@ describe("createModelResolver", () => {
 		expect(registry.compat ?? {}).not.toHaveProperty("forceAdaptiveThinking");
 		expect(registry.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
 		expect(astra.thinkingLevelMap).not.toBe(registry.thinkingLevelMap);
-		const luna = resolve({ model: "vercel-ai-gateway:openai/gpt-5.6-luna" });
-		expect(luna).toBe(getBuiltinModel("vercel-ai-gateway", "openai/gpt-5.6-luna"));
-		expect(luna.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
+		const luna = resolve({ model: "vercel-ai-gateway:openai/gpt-6-luna" });
+		const lunaRegistry = getBuiltinModel("vercel-ai-gateway", "openai/gpt-6-luna");
+		expect(luna).not.toBe(lunaRegistry);
+		expect(luna.compat).toMatchObject({ vercelGatewayRouting: { only: ["openai"] } });
+		expect(lunaRegistry.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
 		expect(luna.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
 	});
 
@@ -157,7 +215,7 @@ describe("createModelResolver", () => {
 	it("supports custom aliases merged over the defaults", () => {
 		const resolve = createModelResolver({ aliases: { cheap: "anthropic:claude-haiku-4-5" } });
 		expect(resolve({ model: "cheap" }).id).toBe("claude-haiku-4-5");
-		expect(resolve({ model: "opus" }).id).toBe("anthropic/claude-opus-5"); // gateway defaults still present
+		expect(resolve({ model: "opus" }).id).toBe("anthropic/claude-opus-5.5"); // gateway defaults still present
 	});
 
 	it("accepts a concrete Model as an alias value", () => {
@@ -188,7 +246,9 @@ describe("createModelResolver", () => {
 		for (const rung of ladder) {
 			expect(() => resolve(rung)).not.toThrow();
 		}
+		expect(ladder.at(-1)?.model).toBe("opus");
 		expect(DEFAULT_MODEL_ALIASES.sonnet).toContain("claude-sonnet");
+		expect(DEFAULT_MODEL_ALIASES.opus).toContain("claude-opus-5.5");
 	});
 });
 
@@ -199,7 +259,7 @@ describe("withGatewayCompatModels", () => {
 	const models = withGatewayCompatModels(builtinModels());
 
 	it("overlays gateway Claude models resolved by identity", () => {
-		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]) {
+		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-opus-5.5", "anthropic/claude-fable-5.1"]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
 				vercelGatewayRouting: { only: ["anthropic"] },
 				supportsMidConvoEffort: true,
@@ -213,13 +273,14 @@ describe("withGatewayCompatModels", () => {
 	it("mirrors native anthropic strict-tools and mid-convo system flags onto the gateway route", () => {
 		for (const id of [
 			"anthropic/claude-opus-5",
+			"anthropic/claude-opus-5.5",
 			"anthropic/claude-fable-5.1",
 			"anthropic/claude-sonnet-5",
 			"anthropic/claude-haiku-4.5",
 		]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({ supportsStrictTools: true });
 		}
-		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-fable-5.1"]) {
+		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-opus-5.5", "anthropic/claude-fable-5.1"]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
 				supportsMidConvoSystemMessages: true,
 				supportsMidConvoToolChanges: true,
@@ -256,11 +317,23 @@ describe("withGatewayCompatModels", () => {
 		});
 	});
 
+	it("pins other openai/* models resolved by identity to OpenAI's route, without a thinking overlay", () => {
+		for (const id of ["openai/gpt-6-sol", "openai/gpt-6-luna", "openai/gpt-5.6-terra"]) {
+			expect(models.getModel("vercel-ai-gateway", id)?.compat).toEqual({
+				...builtinModels().getModel("vercel-ai-gateway", id)?.compat,
+				vercelGatewayRouting: { only: ["openai"] },
+			});
+			expect(models.getModel("vercel-ai-gateway", id)?.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
+		}
+	});
+
 	it("leaves other providers, unknown ids, and the rest of the collection alone", () => {
-		expect(models.getModel("vercel-ai-gateway", "openai/gpt-5.6-luna")?.compat).toEqual(
-			builtinModels().getModel("vercel-ai-gateway", "openai/gpt-5.6-luna")?.compat,
+		expect(models.getModel("vercel-ai-gateway", "zai/glm-5.3")?.compat).toEqual(
+			builtinModels().getModel("vercel-ai-gateway", "zai/glm-5.3")?.compat,
 		);
-		expect(models.getModel("vercel-ai-gateway", "openai/gpt-5.6-luna")?.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
+		expect(models.getModel("vercel-ai-gateway", "zai/glm-5.3")?.compat ?? {}).not.toHaveProperty(
+			"vercelGatewayRouting",
+		);
 		expect(models.getModel("anthropic", "claude-opus-4-5")?.compat).toEqual(
 			builtinModels().getModel("anthropic", "claude-opus-4-5")?.compat,
 		);
@@ -279,20 +352,28 @@ describe("applyGatewayRouting", () => {
 	const opus = resolve({ model: "opus" });
 
 	it("adds providerOptions.gateway.only for a fenced gateway anthropic model, without mutating the payload", () => {
-		const payload = { model: "anthropic/claude-opus-5", messages: [] };
+		const payload = { model: "anthropic/claude-opus-5.5", messages: [] };
 		const routed = applyGatewayRouting(opus, payload);
 		expect(routed).toEqual({
-			model: "anthropic/claude-opus-5",
+			model: "anthropic/claude-opus-5.5",
 			messages: [],
 			providerOptions: { gateway: { only: ["anthropic"] } },
 		});
 		expect(routed).not.toBe(payload);
-		expect(payload).toEqual({ model: "anthropic/claude-opus-5", messages: [] });
+		expect(payload).toEqual({ model: "anthropic/claude-opus-5.5", messages: [] });
 	});
 
 	it("fences astra to openai and preserves sibling providerOptions keys", () => {
 		const routed = applyGatewayRouting(resolve({ model: "astra" }), { providerOptions: { other: 1 } });
 		expect(routed).toEqual({ providerOptions: { other: 1, gateway: { only: ["openai"] } } });
+	});
+
+	it("fences sol and luna to openai through the same pin", () => {
+		for (const alias of ["sol", "luna"]) {
+			expect(applyGatewayRouting(resolve({ model: alias }), {})).toEqual({
+				providerOptions: { gateway: { only: ["openai"] } },
+			});
+		}
 	});
 
 	it("forwards both only and order when the pin names both, as copies", () => {
@@ -306,7 +387,7 @@ describe("applyGatewayRouting", () => {
 	});
 
 	it("returns undefined for a gateway model without the pin, an empty pin, or a non-gateway model", () => {
-		expect(applyGatewayRouting(resolve({ model: "luna" }), {})).toBeUndefined();
+		expect(applyGatewayRouting(resolve({ model: "glm" }), {})).toBeUndefined();
 		const empty = { ...opus, compat: { vercelGatewayRouting: {} } } as Model<any>;
 		expect(applyGatewayRouting(empty, {})).toBeUndefined();
 		const direct = { ...opus, provider: "anthropic" } as Model<any>;
@@ -337,8 +418,9 @@ describe("createSupportedEfforts", () => {
 		expect(supported("opus")).toEqual(["low", "medium", "high", "xhigh", "max"]);
 	});
 
-	it("reports luna's xhigh ceiling (no max)", () => {
+	it("reports luna's and sol's xhigh ceiling (no max)", () => {
 		expect(supported("luna")).toEqual(["low", "medium", "high", "xhigh"]);
+		expect(supported("sol")).toEqual(["low", "medium", "high", "xhigh"]);
 	});
 
 	it("reports astra verifies the full ladder through the overlay (catalog alone would stop at xhigh)", () => {
@@ -362,7 +444,7 @@ describe("createSupportedEfforts", () => {
 	it("clamps an explicit max on haiku down to its verified ceiling in the ladder", () => {
 		expect(buildEscalationLadder({ model: "haiku", effort: "max" }, { supportedEfforts: supported })).toEqual([
 			{ model: "haiku", effort: "high" },
-			{ model: "fable", effort: "max" },
+			{ model: "opus", effort: "max" },
 		]);
 	});
 });

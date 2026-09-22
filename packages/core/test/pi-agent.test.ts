@@ -283,9 +283,18 @@ describe("PiAgent.dispatch", () => {
 			expect(input).toEqual(snapshot);
 		});
 
+		it("fences every openai/* gateway model (sol, luna) to providerOptions.gateway.only = ['openai']", async () => {
+			for (const id of ["openai/gpt-6-sol", "openai/gpt-6-luna"]) {
+				const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", id);
+				expect(output).toEqual({ model: id, messages: [], providerOptions: { gateway: { only: ["openai"] } } });
+				expect(output).not.toBe(input);
+				expect(input).toEqual(snapshot);
+			}
+		});
+
 		it("leaves a gateway model without the compat pin untouched", async () => {
 			// The harness resolves an unchanged hook to the original payload object.
-			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "openai/gpt-5.6-luna");
+			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "zai/glm-5.3");
 
 			expect(output).toBe(input);
 			expect(input).toEqual(snapshot);

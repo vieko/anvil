@@ -35,7 +35,7 @@ anvil run "<outcome>" -C <repo> [--verify "<cmd>"]...
   bounds the set it *may* touch. Use it to cap blast radius when the gate
   can't fully pin down what done means.
 - `--model <alias|provider:id>` — base model: `haiku` / `sonnet` / `opus` /
-  `fable` / `astra` (or a budget tier: `luna` / `terra` / `glm`), or a
+  `fable` / `astra` (or a budget tier: `sol` / `luna` / `terra` / `glm`), or a
   concrete `provider:model-id`. Default `sonnet`.
 - `--effort <level>` — base reasoning effort: `low` / `medium` / `high` /
   `xhigh` / `max`. Default `high`. Pairs with `--model` to set the base of the

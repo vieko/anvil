@@ -17,7 +17,8 @@ anvil --help | --version
 ```
 run options:
   -C, --dir <path>        Target repository (default: current directory)
-      --model <name>      Base model: alias (sonnet/opus/haiku) or provider:id
+      --model <name>      Base model: alias (haiku/sonnet/opus/fable/astra/sol/luna/
+                          terra/glm) or provider:id
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
   -q, --quiet             Print only the final verdict
