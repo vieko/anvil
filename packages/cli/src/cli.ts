@@ -12,6 +12,10 @@ export interface RunOptions {
 	maxAttempts?: number;
 	/** Explicit gate commands; when empty the gate auto-detects. */
 	verify: string[];
+	/** Regexes identifying harness crashes for gate commands. */
+	gateCrashPattern: string[];
+	/** Verify untouched fork before attempt 0 (default true). */
+	baseline: boolean;
 	/** Glob patterns linked into the worktree before the agent runs (symlink, copy fallback; e.g. "**\/.env.local"). */
 	link: string[];
 	/** Install dependencies in the worktree when a lockfile is present (default true). */
@@ -59,6 +63,8 @@ export function parse(argv: string[]): Command {
 				effort: { type: "string" },
 				"max-attempts": { type: "string", short: "n" },
 				verify: { type: "string", multiple: true },
+				"gate-crash-pattern": { type: "string", multiple: true },
+				"no-baseline": { type: "boolean" },
 				link: { type: "string", multiple: true },
 				contract: { type: "string", multiple: true },
 				scope: { type: "string", multiple: true },
@@ -124,6 +130,8 @@ export function parse(argv: string[]): Command {
 					effort,
 					maxAttempts,
 					verify: (values.verify as string[] | undefined) ?? [],
+					gateCrashPattern: (values["gate-crash-pattern"] as string[] | undefined) ?? [],
+					baseline: !((values["no-baseline"] as boolean | undefined) ?? false),
 					link: (values.link as string[] | undefined) ?? [],
 					contract: (values.contract as string[] | undefined) ?? [],
 					scope: (values.scope as string[] | undefined) ?? [],
@@ -203,6 +211,10 @@ run options:
                           (default: high when omitted)
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
+      --gate-crash-pattern <re>
+                          Treat gate output matching <re> as a harness crash
+                          (inconclusive, not a failure of the work; repeatable)
+      --no-baseline       Skip the gate run on the untouched fork before attempt 0
       --link <glob>       Link file(s) into the worktree before the run (symlink,
                           copy fallback; repeatable; e.g. "**/.env.local"). Off by default.
       --no-install        Skip the pre-run dependency install (on by default

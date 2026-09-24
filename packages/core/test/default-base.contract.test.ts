@@ -55,6 +55,7 @@ describe("default base (frozen contract)", () => {
 		const res = await runToGate(
 			{ id: "default-base", prompt: "p" },
 			{ agent, workspace: fakeWorkspace(), gate, persist: nullPersister() },
+			{ baseline: false },
 		);
 
 		expect(res.passed).toBe(true);

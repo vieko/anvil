@@ -20,6 +20,8 @@ export interface CommandGateOptions {
 	env?: Record<string, string>;
 	/** Default per-command timeout (ms). Default 120000. */
 	timeoutMs?: number;
+	/** Additional output patterns identifying a verifier harness crash. */
+	crashPatterns?: RegExp[];
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -85,6 +87,11 @@ export class CommandGate implements Gate {
 				errorBlocks.push(`Command failed: ${gc.cmd}\n${result.output}`);
 			} else if (verdict === "inconclusive") {
 				anyInconclusive = true;
+				if (result.crash) {
+					errorBlocks.push(
+						`anvil: gate command could not run (harness crash), not a failure of the work: ${gc.cmd}\n${result.output}`,
+					);
+				}
 			}
 		}
 
@@ -107,7 +114,7 @@ export class CommandGate implements Gate {
 		const env = { ...DEFAULT_ENV, ...this.options.env };
 		const timeoutMs = gc.timeoutMs ?? this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-		const runs: { verdict: Verdict; exec: ExecResult }[] = [];
+		const runs: { verdict: Verdict; exec: ExecResult; crash?: boolean }[] = [];
 		let totalMs = 0;
 
 		for (let i = 0; i < flakeRuns; i++) {
@@ -115,8 +122,10 @@ export class CommandGate implements Gate {
 			const started = Date.now();
 			const exec = await ws.exec(gc.cmd, { timeoutMs, env, signal });
 			totalMs += Date.now() - started;
-			const verdict: Verdict = exec.error ? "inconclusive" : exec.exitCode === 0 ? "pass" : "fail";
-			runs.push({ verdict, exec });
+			const crash =
+				!exec.error && exec.exitCode !== 0 && isHarnessCrash(gc.cmd, combinedOutput(exec), this.options.crashPatterns);
+			const verdict: Verdict = exec.error || crash ? "inconclusive" : exec.exitCode === 0 ? "pass" : "fail";
+			runs.push({ verdict, exec, crash });
 
 			// A clean first pass is trusted (single run). Otherwise stop as soon as the
 			// outcome is decided, to avoid needless re-runs.
@@ -137,14 +146,76 @@ export class CommandGate implements Gate {
 
 		const representative = pickRepresentative(runs, verdict);
 		const output = representative ? truncate(combinedOutput(representative.exec)) : "";
+		const crashed = verdict === "inconclusive" && runs.some((r) => r.crash);
 		return {
 			verdict,
-			result: { cmd: gc.cmd, passed: verdict === "pass", output, durationMs: totalMs },
+			result: {
+				cmd: gc.cmd,
+				passed: verdict === "pass",
+				output,
+				durationMs: totalMs,
+				...(crashed ? { crash: true } : {}),
+			},
 		};
 	}
 }
 
-function pickRepresentative(runs: { verdict: Verdict; exec: ExecResult }[], verdict: Verdict) {
+function isHarnessCrash(command: string, output: string, patterns: RegExp[] = []): boolean {
+	const tokens = (command.match(/(?:'[^']*'|"[^"]*"|[^\s]+)/g) ?? []).map((token) =>
+		token.replace(/^(['"])(.*)\1$/, "$2"),
+	);
+	const ownTokens = new Set(
+		tokens.filter((token, index) => index === 0 || token.includes("/") || /\.(?:js|mjs|cjs|ts|py|sh)$/i.test(token)),
+	);
+	// Path-like tokens only (the program name is excluded): an ENOENT line that
+	// merely mentions `node` or `npm` is the work's failure, not the verifier's.
+	const ownPaths = [...ownTokens].filter((token, index) => index > 0 || token.includes("/"));
+	const ownBasenames = ownPaths.map((token) => token.split(/[\\/]/).at(-1) ?? token);
+	const escaped = [...ownTokens].map(escapeRegExp);
+
+	if (escaped.some((token) => new RegExp(`(?:^|\\n)(?:bash: )?${token}: command not found(?:$|\\n)`).test(output))) {
+		return true;
+	}
+	if (
+		escaped.some((token) =>
+			new RegExp(`(?:^|\\n)(?:bash: )?${token}: No such file(?: or directory)?(?:$|\\n)`).test(output),
+		)
+	) {
+		return true;
+	}
+	for (const line of output.split("\n")) {
+		if (
+			/ENOENT/.test(line) &&
+			ownPaths.some((token) => new RegExp(`(?:^|[\\s'"\\\\])${escapeRegExp(token)}(?:$|[\\s'":,])`).test(line))
+		) {
+			return true;
+		}
+	}
+	const missingModules = [...output.matchAll(/Cannot find module ['"]([^'"]+)['"]/g)].map((match) => match[1]);
+	if (/ERR_MODULE_NOT_FOUND/.test(output)) {
+		const esmTarget = [...output.matchAll(/Cannot find (?:module|package) ['"]([^'"]+)['"]/g)].map((match) => match[1]);
+		missingModules.push(...esmTarget);
+	}
+	if (missingModules.some((modulePath) => ownBasenames.includes(modulePath.split(/[\\/]/).at(-1) ?? modulePath))) {
+		return true;
+	}
+	if (/Traceback \(most recent call last\)/.test(output)) {
+		const frames = output.matchAll(/^\s+File ["']([^"']+)["']/gm);
+		for (const [, path] of frames) {
+			if (ownBasenames.some((name) => (path.split(/[\\/]/).at(-1) ?? path) === name)) return true;
+		}
+	}
+	return patterns.some((pattern) => {
+		pattern.lastIndex = 0;
+		return pattern.test(output);
+	});
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function pickRepresentative(runs: { verdict: Verdict; exec: ExecResult; crash?: boolean }[], verdict: Verdict) {
 	if (verdict === "pass") return runs.find((r) => r.verdict === "pass") ?? runs.at(-1);
 	return runs.find((r) => r.verdict === "fail") ?? runs.at(-1);
 }

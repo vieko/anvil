@@ -168,6 +168,8 @@ export interface CommandResult {
 	passed: boolean;
 	output: string;
 	durationMs: number;
+	/** The verifier itself could not run; its failure is inconclusive, not work failure. */
+	crash?: true;
 }
 
 export interface GateResult {
