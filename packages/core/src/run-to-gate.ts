@@ -40,6 +40,8 @@ export interface RunToGateOptions {
 	 * {@link DEFAULT_MAX_REVERIFIES}. Bounds a permanently broken environment.
 	 */
 	maxReverifies?: number;
+	/** Verify the untouched fork before dispatching the first attempt. Default true. */
+	baseline?: boolean;
 	signal?: AbortSignal;
 	/**
 	 * Resume a crashed/interrupted run from its last persisted record (requires
@@ -58,6 +60,7 @@ export interface RunToGateOptions {
 export interface RunToGateResult {
 	outcomeId: string;
 	passed: boolean;
+	baseline?: "red" | "green";
 	attempts: number;
 	finalConfig: ModelEffort;
 	errors?: string;
@@ -162,6 +165,7 @@ export async function runToGate(
 		});
 
 	let startAttempt = 0;
+	let resumedNonterminal = false;
 	if (options.resume && persist.load) {
 		const prev = await persist.load(outcome.id);
 		if (prev?.state === "passed") {
@@ -186,6 +190,7 @@ export async function runToGate(
 			};
 		}
 		if (prev) {
+			resumedNonterminal = true;
 			// Non-terminal: a `retrying` record means that attempt is done (continue
 			// at the next one); `running`/`verifying` means redo it from the agent step.
 			sessionId = prev.sessionId;
@@ -201,6 +206,33 @@ export async function runToGate(
 			attempts.push(...rehydrated);
 			if (lastErrors) prompt = buildRetryPrompt(outcome.prompt, lastErrors, startAttempt, maxAttempts);
 		}
+	}
+
+	let baseline: "red" | "green" | undefined;
+	if ((options.baseline ?? true) && !resumedNonterminal) {
+		const config = escalate(base, 0);
+		await record("verifying", 0, config);
+		let result = await gate.verify(workspace, options.signal);
+		let reverifies = 0;
+		while (result.inconclusive && reverifies < maxReverifies && !options.signal?.aborted) {
+			reverifies++;
+			await record("verifying", 0, config);
+			result = await gate.verify(workspace, options.signal);
+		}
+		if (result.inconclusive) {
+			lastErrors = `anvil: gate is inconclusive on the fork SHA before any work; the run is void.\n\n${result.errors}`;
+			await record("failed", 0, config);
+			return {
+				outcomeId: outcome.id,
+				passed: false,
+				attempts: 0,
+				finalConfig: config,
+				errors: lastErrors,
+				gateCommands: result.commands.map((c) => c.cmd),
+				timeline: attempts,
+			};
+		}
+		baseline = result.passed ? "green" : "red";
 	}
 
 	for (let attempt = startAttempt; attempt < maxAttempts; attempt++) {
@@ -253,6 +285,7 @@ export async function runToGate(
 			return {
 				outcomeId: outcome.id,
 				passed: false,
+				baseline,
 				attempts: attempt + 1,
 				finalConfig: config,
 				errors: lastErrors,
@@ -275,6 +308,7 @@ export async function runToGate(
 			return {
 				outcomeId: outcome.id,
 				passed: false,
+				baseline,
 				attempts: attempt + 1,
 				finalConfig: config,
 				errors: lastErrors,
@@ -303,6 +337,7 @@ export async function runToGate(
 			return {
 				outcomeId: outcome.id,
 				passed: true,
+				baseline,
 				attempts: attempt + 1,
 				finalConfig: config,
 				gateCommands,
@@ -322,6 +357,7 @@ export async function runToGate(
 			return {
 				outcomeId: outcome.id,
 				passed: false,
+				baseline,
 				attempts: attempt + 1,
 				finalConfig: config,
 				errors: lastErrors,
@@ -343,6 +379,7 @@ export async function runToGate(
 	return {
 		outcomeId: outcome.id,
 		passed: false,
+		baseline,
 		attempts: maxAttempts,
 		finalConfig: escalate(base, maxAttempts - 1),
 		errors: lastErrors,

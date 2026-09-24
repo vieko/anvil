@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { classifyDispatch, runToGate } from "../src/run-to-gate.ts";
+import { classifyDispatch, runToGate as runToGateEngine } from "../src/run-to-gate.ts";
 import type { Agent, Gate, GateResult, ModelEffort, RunRecord, StatePersister, Workspace } from "../src/types.ts";
+
+function runToGate(
+	outcome: Parameters<typeof runToGateEngine>[0],
+	deps: Parameters<typeof runToGateEngine>[1],
+	options: Parameters<typeof runToGateEngine>[2] = {},
+) {
+	return runToGateEngine(outcome, deps, { baseline: false, ...options });
+}
 
 function fakeWorkspace(): Workspace & { committed: string[] } {
 	const committed: string[] = [];
@@ -46,6 +54,159 @@ function cmd(c: string, passed: boolean): GateResult["commands"][number] {
 }
 
 describe("runToGate", () => {
+	it("voids an inconclusive baseline before dispatch and persists the reason", async () => {
+		let dispatches = 0;
+		const gate: Gate = {
+			async verify() {
+				return { passed: false, inconclusive: true, errors: "harness crash", commands: [cmd("gate.sh", false)] };
+			},
+		};
+		const agent: Agent = {
+			async dispatch() {
+				dispatches++;
+				return { text: "unexpected" };
+			},
+		};
+		const ws = fakeWorkspace();
+		const records: RunRecord[] = [];
+		const persist: StatePersister = {
+			async save(record) {
+				records.push(record);
+			},
+		};
+		const result = await runToGateEngine(
+			{ id: "baseline-crash", prompt: "p" },
+			{ agent, workspace: ws, gate, persist },
+			{ maxReverifies: 1 },
+		);
+		expect(dispatches).toBe(0);
+		expect(result).toMatchObject({ passed: false, attempts: 0, timeline: [] });
+		expect(result.errors).toContain("anvil: gate is inconclusive on the fork SHA before any work; the run is void.");
+		expect(result.errors).toContain("harness crash");
+		expect(records.at(-1)).toMatchObject({ state: "failed", errors: result.errors, usage: undefined, attempts: [] });
+		expect(ws.committed).toEqual([]);
+	});
+
+	it("re-verifies a transient baseline inconclusive at the base rung before dispatch", async () => {
+		let verifies = 0;
+		const configs: ModelEffort[] = [];
+		const gate: Gate = {
+			async verify() {
+				verifies++;
+				if (verifies === 1) return { passed: false, inconclusive: true, errors: "flake", commands: [] };
+				if (verifies === 2) return { passed: false, errors: "red baseline", commands: [] };
+				return { passed: true, errors: "", commands: [] };
+			},
+		};
+		const agent: Agent = {
+			async dispatch({ config }) {
+				configs.push(config);
+				return { text: "done" };
+			},
+		};
+		const result = await runToGateEngine(
+			{ id: "baseline-clears", prompt: "p", base: { model: "luna", effort: "low" } },
+			{ agent, workspace: fakeWorkspace(), gate, persist: recordingPersister() },
+		);
+		expect(result.passed).toBe(true);
+		expect(result.baseline).toBe("red");
+		expect(verifies).toBe(3); // two baseline checks plus the normal post-dispatch verification
+		expect(configs[0]).toEqual({ model: "luna", effort: "low" });
+	});
+
+	it("records a green baseline, proceeds to dispatch, and commits on pass", async () => {
+		let dispatches = 0;
+		let verifies = 0;
+		const gate: Gate = {
+			async verify() {
+				verifies++;
+				return { passed: true, errors: "", commands: [] };
+			},
+		};
+		const ws = fakeWorkspace();
+		const result = await runToGateEngine(
+			{ id: "baseline-green", prompt: "add a check" },
+			{
+				agent: {
+					async dispatch() {
+						dispatches++;
+						return { text: "done" };
+					},
+				},
+				workspace: ws,
+				gate,
+				persist: recordingPersister(),
+			},
+		);
+		expect(result).toMatchObject({ passed: true, baseline: "green", attempts: 1 });
+		expect(dispatches).toBe(1);
+		expect(verifies).toBe(2);
+		expect(ws.committed).toEqual(["anvil: baseline-green"]);
+	});
+
+	it("records a red baseline and proceeds", async () => {
+		let verifies = 0;
+		const result = await runToGateEngine(
+			{ id: "baseline-red", prompt: "fix it" },
+			{
+				agent: {
+					async dispatch() {
+						return { text: "done" };
+					},
+				},
+				workspace: fakeWorkspace(),
+				gate: {
+					async verify() {
+						verifies++;
+						return { passed: false, errors: "red", commands: [] };
+					},
+				},
+				persist: recordingPersister(),
+			},
+			{ maxAttempts: 1 },
+		);
+		expect(result.baseline).toBe("red");
+		expect(verifies).toBe(2);
+	});
+
+	it("does not rerun baseline when resuming a non-terminal record", async () => {
+		let verifies = 0;
+		const prev: RunRecord = {
+			outcomeId: "resume-baseline",
+			state: "retrying",
+			attempt: 0,
+			maxAttempts: 2,
+			config: { model: "sonnet", effort: "high" },
+			attempts: [],
+			updatedAt: "now",
+		};
+		const persist: StatePersister = {
+			async save() {},
+			async load() {
+				return prev;
+			},
+		};
+		await runToGateEngine(
+			{ id: prev.outcomeId, prompt: "p" },
+			{
+				agent: {
+					async dispatch() {
+						return { text: "done" };
+					},
+				},
+				workspace: fakeWorkspace(),
+				gate: {
+					async verify() {
+						verifies++;
+						return { passed: true, errors: "", commands: [] };
+					},
+				},
+				persist,
+			},
+			{ resume: true, maxAttempts: 2 },
+		);
+		expect(verifies).toBe(1);
+	});
 	it("passes on the first attempt when the gate is green, and commits", async () => {
 		const agent: Agent = {
 			async dispatch() {

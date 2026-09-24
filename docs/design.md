@@ -106,7 +106,13 @@ reliability properties:
 - an **inconclusive gate** (flake / env failure) is re-verified in place: same
   attempt, same rung, no re-dispatch, no error feedback. It never consumes an
   attempt or climbs the ladder; past a small re-verify budget the run is voided
-  (an environment that cannot judge is not a model failure).
+  (an environment that cannot judge is not a model failure). A non-zero
+  command naming its own broken verifier program/script is a harness crash and
+  inconclusive, not a work failure; unrelated test errors remain actionable.
+  On a fresh run the gate first verifies the untouched fork SHA with the same
+  re-verify budget: inconclusive voids before dispatch, while red and green
+  baselines both proceed (green is recorded and warned about; it proves nothing
+  unless work adds checks).
 
 ### State table
 

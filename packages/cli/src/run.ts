@@ -53,7 +53,17 @@ export async function executeRun(
 ): Promise<number> {
 	// process.pid: the record's liveness pid (#41). Supplied here, not inside
 	// @anvil/core, so the pure engine never touches a node global.
-	const result = await runToGate(outcome, deps, { maxAttempts: options.maxAttempts, pid: process.pid });
+	const result = await runToGate(outcome, deps, {
+		maxAttempts: options.maxAttempts,
+		baseline: options.baseline,
+		pid: process.pid,
+	});
+
+	if (result.baseline === "green") {
+		io.err(
+			"anvil: gate is already green on the fork SHA; it proves nothing unless the work adds checks (use --contract for a red-first gate)",
+		);
+	}
 
 	// Machine-readable mode: a single JSON object on stdout, regardless of verdict,
 	// so an agent/script caller can assess the outcome without scraping prose.
@@ -72,6 +82,7 @@ export async function executeRun(
 			JSON.stringify({
 				id: outcome.id,
 				passed: result.passed,
+				...(result.baseline ? { baseline: result.baseline } : {}),
 				attempts: result.attempts,
 				timeline: result.timeline,
 				...(result.usage ? { usage: result.usage } : {}),

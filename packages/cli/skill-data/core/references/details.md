@@ -9,14 +9,21 @@ trust it:
 - **fail** — a command exited non-zero, repeatably. Actionable: its output is
   fed back to the agent as the next outcome.
 - **inconclusive** — the gate could not produce a trustworthy verdict: a command
-  could not be run (timeout, spawn failure), a fail-then-pass flake, or there
-  were **no** gate commands at all. anvil re-verifies rather than feeding
+  could not be run (timeout, spawn failure), an identified crash of the gate's
+  own executable/script, a fail-then-pass flake, or there were **no** gate
+  commands at all. Errors in the code under test stay ordinary failures. anvil
+  re-verifies rather than feeding
   garbage back, and never reports an inconclusive as a pass. "No gate" is a
   refusal to vouch, not a silent success.
 
 Flake-resistance: a command that fails then passes on recheck is treated as
 flaky (inconclusive), not a hard failure. A real, repeatable failure dominates
 an inconclusive sibling — there is something concrete to fix.
+
+On a fresh run, anvil verifies the untouched fork SHA before dispatch. A
+persistently inconclusive baseline voids the run without work; red and green
+baselines both proceed. Green is recorded and warned about because it proves
+nothing unless the work adds checks.
 
 ## Auto-detection (when you omit --verify)
 

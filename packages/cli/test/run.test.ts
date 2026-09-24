@@ -48,6 +48,8 @@ function capture(): { io: Io; lines: string[] } {
 
 const opts = (over: Partial<RunOptions> = {}): RunOptions => ({
 	verify: [],
+	gateCrashPattern: [],
+	baseline: false,
 	link: [],
 	install: true,
 	contract: [],
@@ -97,7 +99,7 @@ describe("executeRun", () => {
 		const io: Io = { out: (l) => out.push(l), err: (l) => err.push(l) };
 		const code = await executeRun(
 			{ id: "feat", prompt: "p", base: { model: "sonnet" } },
-			opts({ json: true }),
+			opts({ json: true, baseline: true }),
 			{ agent: fakeAgent(), workspace: fakeWorkspace(), gate: gate(true), persist: new MemoryStatePersister() },
 			io,
 		);
@@ -109,6 +111,7 @@ describe("executeRun", () => {
 		expect(payload).toEqual({
 			id: "feat",
 			passed: true,
+			baseline: "green",
 			attempts: 1,
 			timeline: payload.timeline,
 			finalModel: "sonnet",
@@ -202,7 +205,7 @@ describe("executeRun", () => {
 		const flaky: Gate = {
 			async verify(): Promise<GateResult> {
 				verifyCalls++;
-				return verifyCalls === 1
+				return verifyCalls <= 2
 					? { passed: false, errors: "nope", commands: [] }
 					: { passed: true, errors: "", commands: [] };
 			},
@@ -211,7 +214,7 @@ describe("executeRun", () => {
 		const io: Io = { out: (l) => out.push(l), err: () => {} };
 		const code = await executeRun(
 			{ id: "feat", prompt: "p" },
-			opts({ json: true }),
+			opts({ json: true, baseline: true }),
 			{ agent: priced, workspace: fakeWorkspace(), gate: flaky, persist: new MemoryStatePersister() },
 			io,
 		);

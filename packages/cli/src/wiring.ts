@@ -48,7 +48,14 @@ export async function buildRunDeps(
 		onActivity,
 	});
 	const commands = options.verify.length > 0 ? options.verify.map((cmd) => ({ cmd })) : undefined;
-	const gate = new CommandGate({ commands });
+	const crashPatterns = options.gateCrashPattern.map((pattern) => {
+		try {
+			return new RegExp(pattern);
+		} catch {
+			throw new Error(`anvil: invalid --gate-crash-pattern regex: ${pattern}`);
+		}
+	});
+	const gate = new CommandGate({ commands, crashPatterns });
 	const persist = new FileStatePersister({ dir: runsDir });
 
 	// Clamp escalation rungs to the catalog's provider-verified reasoning levels

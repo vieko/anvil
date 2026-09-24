@@ -167,6 +167,68 @@ describe("CommandGate verdicts", () => {
 		expect(ws.calls.filter((c) => c === "a")).toHaveLength(1);
 	});
 
+	it("classifies a missing gate executable as a harness crash", async () => {
+		const ws = fakeWorkspace({
+			exec: { "./scripts/check.sh": [{ exitCode: 127, stderr: "./scripts/check.sh: No such file or directory" }] },
+		});
+		const res = await new CommandGate({ commands: [{ cmd: "./scripts/check.sh" }] }).verify(ws);
+		expect(res.passed).toBe(false);
+		expect(res.inconclusive).toBe(true);
+		expect(res.commands[0].crash).toBe(true);
+		expect(res.errors).toContain(
+			"anvil: gate command could not run (harness crash), not a failure of the work: ./scripts/check.sh",
+		);
+		expect(res.errors).toContain("No such file or directory");
+	});
+
+	it("does not confuse missing imports in tested code with a broken verifier", async () => {
+		const ws = fakeWorkspace({ exec: { "npm test": [{ exitCode: 1, stderr: "Cannot find module './lib/thing'" }] } });
+		const res = await new CommandGate({ commands: [{ cmd: "npm test" }], flakeRuns: 1 }).verify(ws);
+		expect(res.inconclusive).toBeFalsy();
+		expect(res.commands[0].crash).toBeUndefined();
+	});
+
+	it("does not classify a traceback in code under test as a harness crash", async () => {
+		const stderr = 'Traceback (most recent call last):\\n  File "app.py", line 2, in run\\nRuntimeError: broken';
+		const ws = fakeWorkspace({ exec: { "python verifier.py": [{ exitCode: 1, stderr }] } });
+		const res = await new CommandGate({ commands: [{ cmd: "python verifier.py" }], flakeRuns: 1 }).verify(ws);
+		expect(res.inconclusive).toBeFalsy();
+		expect(res.commands[0].crash).toBeUndefined();
+	});
+
+	it("does not classify unrelated ENOENT output or a plain non-zero exit as a crash", async () => {
+		for (const stderr of ["test output: ENOENT missing fixture.txt", "assertion failed"]) {
+			const ws = fakeWorkspace({ exec: { "node verify.mjs": [{ exitCode: 1, stderr }] } });
+			const res = await new CommandGate({ commands: [{ cmd: "node verify.mjs" }], flakeRuns: 1 }).verify(ws);
+			expect(res.inconclusive).toBeFalsy();
+			expect(res.commands[0].crash).toBeUndefined();
+		}
+	});
+
+	it("lets a repeatable failure dominate a crashed verifier sibling", async () => {
+		const ws = fakeWorkspace({
+			exec: {
+				"./gate.sh": [{ exitCode: 127, stderr: "./gate.sh: command not found" }],
+				"npm test": [{ exitCode: 1, stderr: "assertion failed" }],
+			},
+		});
+		const res = await new CommandGate({ commands: [{ cmd: "./gate.sh" }, { cmd: "npm test" }] }).verify(ws);
+		expect(res.inconclusive).toBeFalsy();
+		expect(res.errors).toContain("Command failed: npm test");
+		expect(res.errors).toContain("harness crash");
+	});
+
+	it("supports caller-supplied harness crash patterns", async () => {
+		const ws = fakeWorkspace({ exec: { "opaque gate": [{ exitCode: 1, stderr: "runner died" }] } });
+		const res = await new CommandGate({
+			commands: [{ cmd: "opaque gate" }],
+			crashPatterns: [/runner died/],
+			flakeRuns: 1,
+		}).verify(ws);
+		expect(res.inconclusive).toBe(true);
+		expect(res.commands[0].crash).toBe(true);
+	});
+
 	it("refuses to vouch when no commands are detected (inconclusive, not a silent pass)", async () => {
 		const gate = new CommandGate({ commands: [] });
 		const res = await gate.verify(fakeWorkspace());

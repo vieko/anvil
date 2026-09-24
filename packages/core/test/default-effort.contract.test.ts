@@ -65,6 +65,7 @@ describe("default effort (frozen contract)", () => {
 				gate: gatePassingOnAttempt(1),
 				persist: nullPersister(),
 			},
+			{ baseline: false },
 		);
 		expect(res.passed).toBe(true);
 		expect(seen[0]).toEqual({ model: "opus", effort: "high" });
@@ -80,6 +81,7 @@ describe("default effort (frozen contract)", () => {
 				gate: gatePassingOnAttempt(3),
 				persist: nullPersister(),
 			},
+			{ baseline: false },
 		);
 		expect(seen).toEqual([
 			{ model: "sonnet", effort: "low" },
