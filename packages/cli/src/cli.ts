@@ -65,7 +65,6 @@ export function parse(argv: string[]): Command {
 				verify: { type: "string", multiple: true },
 				"gate-crash-pattern": { type: "string", multiple: true },
 				"no-baseline": { type: "boolean" },
-
 				link: { type: "string", multiple: true },
 				contract: { type: "string", multiple: true },
 				scope: { type: "string", multiple: true },
@@ -212,8 +211,10 @@ run options:
                           (default: high when omitted)
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
-      --gate-crash-pattern <regex> Classify matching gate output as a harness crash (repeatable)
-      --no-baseline        Skip the pre-work gate run (default: baseline enabled)
+      --gate-crash-pattern <re>
+                          Treat gate output matching <re> as a harness crash
+                          (inconclusive, not a failure of the work; repeatable)
+      --no-baseline       Skip the gate run on the untouched fork before attempt 0
       --link <glob>       Link file(s) into the worktree before the run (symlink,
                           copy fallback; repeatable; e.g. "**/.env.local"). Off by default.
       --no-install        Skip the pre-run dependency install (on by default

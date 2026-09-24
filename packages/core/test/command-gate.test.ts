@@ -181,6 +181,41 @@ describe("CommandGate verdicts", () => {
 		expect(res.errors).toContain("No such file or directory");
 	});
 
+	it("classifies a verifier that cannot be resolved by node as a harness crash", async () => {
+		const stderr =
+			"node:internal/modules/cjs/loader:1568\n  throw err;\n  ^\n\nError: Cannot find module '/tmp/wt/scripts/openwiki/behavior/gate.mjs'";
+		const ws = fakeWorkspace({ exec: { "node scripts/openwiki/behavior/gate.mjs": [{ exitCode: 1, stderr }] } });
+		const res = await new CommandGate({ commands: [{ cmd: "node scripts/openwiki/behavior/gate.mjs" }] }).verify(ws);
+		expect(res.inconclusive).toBe(true);
+		expect(res.commands[0].crash).toBe(true);
+	});
+
+	it("classifies a traceback inside the verifier script itself as a harness crash", async () => {
+		const stderr =
+			"Traceback (most recent call last):\n  File \"/tmp/wt/verify.py\", line 37, in <module>\n    data = json.loads(run([...]))\nKeyError: 'results'";
+		const ws = fakeWorkspace({ exec: { "python3 /tmp/wt/verify.py": [{ exitCode: 1, stderr }] } });
+		const res = await new CommandGate({ commands: [{ cmd: "python3 /tmp/wt/verify.py" }] }).verify(ws);
+		expect(res.inconclusive).toBe(true);
+		expect(res.commands[0].crash).toBe(true);
+	});
+
+	it("classifies ENOENT naming the verifier's own script as a crash, but not ENOENT naming only the program", async () => {
+		const own = fakeWorkspace({
+			exec: { "bash scripts/gate.sh": [{ exitCode: 1, stderr: "spawn ENOENT: scripts/gate.sh" }] },
+		});
+		const crashed = await new CommandGate({ commands: [{ cmd: "bash scripts/gate.sh" }] }).verify(own);
+		expect(crashed.commands[0].crash).toBe(true);
+
+		const program = fakeWorkspace({
+			exec: {
+				"node verify.mjs": [{ exitCode: 1, stderr: "Error: ENOENT: no such file, open 'fixtures/a.json' node:fs" }],
+			},
+		});
+		const failed = await new CommandGate({ commands: [{ cmd: "node verify.mjs" }], flakeRuns: 1 }).verify(program);
+		expect(failed.inconclusive).toBeFalsy();
+		expect(failed.commands[0].crash).toBeUndefined();
+	});
+
 	it("does not confuse missing imports in tested code with a broken verifier", async () => {
 		const ws = fakeWorkspace({ exec: { "npm test": [{ exitCode: 1, stderr: "Cannot find module './lib/thing'" }] } });
 		const res = await new CommandGate({ commands: [{ cmd: "npm test" }], flakeRuns: 1 }).verify(ws);
@@ -189,7 +224,7 @@ describe("CommandGate verdicts", () => {
 	});
 
 	it("does not classify a traceback in code under test as a harness crash", async () => {
-		const stderr = 'Traceback (most recent call last):\\n  File "app.py", line 2, in run\\nRuntimeError: broken';
+		const stderr = 'Traceback (most recent call last):\n  File "app.py", line 2, in run\nRuntimeError: broken';
 		const ws = fakeWorkspace({ exec: { "python verifier.py": [{ exitCode: 1, stderr }] } });
 		const res = await new CommandGate({ commands: [{ cmd: "python verifier.py" }], flakeRuns: 1 }).verify(ws);
 		expect(res.inconclusive).toBeFalsy();

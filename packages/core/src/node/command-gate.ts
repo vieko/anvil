@@ -167,7 +167,10 @@ function isHarnessCrash(command: string, output: string, patterns: RegExp[] = []
 	const ownTokens = new Set(
 		tokens.filter((token, index) => index === 0 || token.includes("/") || /\.(?:js|mjs|cjs|ts|py|sh)$/i.test(token)),
 	);
-	const ownBasenames = [...ownTokens].map((token) => token.split(/[\\/]/).at(-1) ?? token);
+	// Path-like tokens only (the program name is excluded): an ENOENT line that
+	// merely mentions `node` or `npm` is the work's failure, not the verifier's.
+	const ownPaths = [...ownTokens].filter((token, index) => index > 0 || token.includes("/"));
+	const ownBasenames = ownPaths.map((token) => token.split(/[\\/]/).at(-1) ?? token);
 	const escaped = [...ownTokens].map(escapeRegExp);
 
 	if (escaped.some((token) => new RegExp(`(?:^|\\n)(?:bash: )?${token}: command not found(?:$|\\n)`).test(output))) {
@@ -183,7 +186,7 @@ function isHarnessCrash(command: string, output: string, patterns: RegExp[] = []
 	for (const line of output.split("\n")) {
 		if (
 			/ENOENT/.test(line) &&
-			[...ownTokens].some((token) => new RegExp(`(?:^|[\\s'"\\\\])${escapeRegExp(token)}(?:$|[\\s'":,])`).test(line))
+			ownPaths.some((token) => new RegExp(`(?:^|[\\s'"\\\\])${escapeRegExp(token)}(?:$|[\\s'":,])`).test(line))
 		) {
 			return true;
 		}
@@ -196,7 +199,7 @@ function isHarnessCrash(command: string, output: string, patterns: RegExp[] = []
 	if (missingModules.some((modulePath) => ownBasenames.includes(modulePath.split(/[\\/]/).at(-1) ?? modulePath))) {
 		return true;
 	}
-	if (/Traceback (?:most recent call last)/.test(output)) {
+	if (/Traceback \(most recent call last\)/.test(output)) {
 		const frames = output.matchAll(/^\s+File ["']([^"']+)["']/gm);
 		for (const [, path] of frames) {
 			if (ownBasenames.some((name) => (path.split(/[\\/]/).at(-1) ?? path) === name)) return true;
