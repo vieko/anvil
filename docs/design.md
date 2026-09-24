@@ -103,8 +103,10 @@ reliability properties:
 - the loop **always terminates** (attempt cap).
 - each retry **climbs the escalation ladder** (monotonic strengthening) and
   feeds the gate's errors back as the next outcome.
-- an **inconclusive gate** (flake / env failure) does not advance the prompt —
-  it is re-verified, not treated as a fixable failure.
+- an **inconclusive gate** (flake / env failure) is re-verified in place: same
+  attempt, same rung, no re-dispatch, no error feedback. It never consumes an
+  attempt or climbs the ladder; past a small re-verify budget the run is voided
+  (an environment that cannot judge is not a model failure).
 
 ### State table
 

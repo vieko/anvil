@@ -34,6 +34,12 @@ export interface RunToGateDeps {
 
 export interface RunToGateOptions {
 	maxAttempts?: number;
+	/**
+	 * How many times an inconclusive gate is re-run in place (same attempt, same
+	 * rung, no re-dispatch) before the run is voided as unjudgeable. Default
+	 * {@link DEFAULT_MAX_REVERIFIES}. Bounds a permanently broken environment.
+	 */
+	maxReverifies?: number;
 	signal?: AbortSignal;
 	/**
 	 * Resume a crashed/interrupted run from its last persisted record (requires
@@ -70,6 +76,12 @@ export interface RunToGateResult {
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE: ModelEffort = { model: "sonnet", effort: "high" };
+/**
+ * Re-verifies granted to an inconclusive gate before the run is voided (#46).
+ * Two is enough to clear a one-off flake; more just delays reporting a broken
+ * gate, which no model attempt can fix.
+ */
+export const DEFAULT_MAX_REVERIFIES = 2;
 
 /**
  * The effort level applied to a base that has a model but no explicit effort.
@@ -91,12 +103,14 @@ export const DEFAULT_EFFORT: Effort = "high";
  *  - the loop ALWAYS terminates (attempt cap).
  *  - each retry climbs the escalation ladder (monotonic strengthening) and
  *    feeds the gate's errors back as the next outcome.
- *  - an inconclusive gate (flake/env) does not advance the prompt — it is
- *    re-verified rather than treated as a fixable failure.
+ *  - an inconclusive gate (flake/env) is re-verified in place: same attempt,
+ *    same rung, no re-dispatch, no error feedback. It never consumes an
+ *    attempt or climbs the ladder (#46). A gate still inconclusive after
+ *    `maxReverifies` voids the run: an environment that cannot judge is not
+ *    a model failure, and paying a stronger model to face it is waste.
  *
  * A2 refinements (tracked in docs/design.md): identical-error stall detection
- * to jump ladder rungs, budget cap alongside the attempt cap, and richer
- * inconclusive-gate retry accounting.
+ * to jump ladder rungs and a budget cap alongside the attempt cap.
  */
 export async function runToGate(
 	outcome: Outcome,
@@ -106,6 +120,7 @@ export async function runToGate(
 	const { agent, workspace, gate, persist } = deps;
 	const escalate = deps.escalate ?? defaultEscalate;
 	const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+	const maxReverifies = Math.max(0, options.maxReverifies ?? DEFAULT_MAX_REVERIFIES);
 	const rawBase: ModelEffort = outcome.base ?? DEFAULT_BASE;
 	// Normalise: a base with a model but no effort gets DEFAULT_EFFORT so attempt 0
 	// always reasons at a known level instead of dispatching thinking-off.
@@ -269,7 +284,16 @@ export async function runToGate(
 		}
 
 		await record("verifying", attempt, config);
-		const result = await gate.verify(workspace, options.signal);
+		let result = await gate.verify(workspace, options.signal);
+		// An inconclusive gate is not a real failure and not the agent's doing:
+		// re-run the gate in place. The attempt index, rung, prompt and session are
+		// untouched, so a flake costs a gate run, never a model dispatch (#46).
+		let reverifies = 0;
+		while (result.inconclusive && reverifies < maxReverifies && !options.signal?.aborted) {
+			reverifies++;
+			await record("verifying", attempt, config);
+			result = await gate.verify(workspace, options.signal);
+		}
 		gateCommands = result.commands.map((c) => c.cmd);
 
 		if (result.passed) {
@@ -287,14 +311,24 @@ export async function runToGate(
 			};
 		}
 
-		// An inconclusive gate is not a real failure: re-verify on the next
-		// iteration without advancing the prompt or recording a fix-up error. Not a
-		// terminal verdict of its own (#12's enum has none); "retrying" is the
-		// closest fit -- this attempt did not settle, and the loop tries again.
+		// Still inconclusive after the re-verify budget: the gate cannot judge this
+		// workspace (no commands, a verifier that cannot run, a test that flips on
+		// every run). Terminal and never a pass, same shape as the guard voids --
+		// escalating would pay a stronger model to face the same broken gate.
 		if (result.inconclusive) {
-			finishAttempt(current, "retrying", undefined);
-			await record("verifying", attempt, config);
-			continue;
+			lastErrors = `anvil: gate inconclusive after ${1 + reverifies} verification run(s); the run is void.\n\n${result.errors}`;
+			finishAttempt(current, "void", lastErrors);
+			await record("failed", attempt, config);
+			return {
+				outcomeId: outcome.id,
+				passed: false,
+				attempts: attempt + 1,
+				finalConfig: config,
+				errors: lastErrors,
+				gateCommands,
+				timeline: attempts,
+				usage: sumUsage(attempts),
+			};
 		}
 
 		lastErrors = result.errors;

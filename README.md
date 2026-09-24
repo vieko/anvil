@@ -90,8 +90,10 @@ Key options (`anvil --help` for the rest):
      one same-model retry a notch up in effort (the errors alone fix most
      cheap-model failures), then the strong tier (`sonnet` by default, up to
      `opus` only when the gate keeps failing).
-   - **inconclusive** (a flake, a timeout, or no gate) → Anvil re-verifies rather
-     than call it a pass.
+   - **inconclusive** (a flake, a timeout, or no gate) → Anvil re-runs the gate
+     in place (same attempt, same model, no re-dispatch) rather than call it a
+     pass or a failure; a gate still inconclusive after 2 re-runs voids the run
+     instead of paying a stronger model to face it.
 4. The loop ends at the attempt cap. State persists outside your repo, so
    `status` is exact and a passed outcome is never redone.
 

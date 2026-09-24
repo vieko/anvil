@@ -298,12 +298,124 @@ describe("runToGate", () => {
 		expect(res.errors).toBe("still broken");
 	});
 
-	it("re-verifies an inconclusive gate instead of treating it as a fixable failure", async () => {
+	it("re-verifies an inconclusive gate in place: same attempt, same rung, no re-dispatch (#46)", async () => {
 		const prompts: string[] = [];
+		const configs: ModelEffort[] = [];
 		let verifyCalls = 0;
 		const agent: Agent = {
 			async dispatch(d) {
 				prompts.push(d.prompt);
+				configs.push(d.config);
+				return { text: "x" };
+			},
+		};
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				if (verifyCalls <= 2) return { passed: false, errors: "flake", commands: [], inconclusive: true };
+				return { passed: true, errors: "", commands: [cmd("npm test", true)] };
+			},
+		};
+		const ws = fakeWorkspace();
+		const persist = recordingPersister();
+
+		const res = await runToGate(
+			{ id: "t4", prompt: "ORIGINAL", base: { model: "luna", effort: "high" } },
+			{ agent, workspace: ws, gate, persist },
+		);
+
+		expect(res.passed).toBe(true);
+		// Two flakes cost two extra gate runs and nothing else: one dispatch, at the
+		// base rung, attempt 0. The flake is the gate's problem, not the model's.
+		expect(verifyCalls).toBe(3);
+		expect(prompts).toEqual(["ORIGINAL"]);
+		expect(configs).toEqual([{ model: "luna", effort: "high" }]);
+		expect(res.attempts).toBe(1);
+		expect(res.finalConfig).toEqual({ model: "luna", effort: "high" });
+		expect(res.timeline).toHaveLength(1);
+		expect(ws.committed).toEqual(["anvil: t4"]);
+		// Each re-verify is persisted as its own `verifying` transition (resumable).
+		expect(persist.states.filter((s) => s === "verifying")).toHaveLength(3);
+	});
+
+	it("voids a run whose gate stays inconclusive past the re-verify budget, without escalating (#46)", async () => {
+		let dispatches = 0;
+		let verifyCalls = 0;
+		const agent: Agent = {
+			async dispatch() {
+				dispatches++;
+				return { text: "x" };
+			},
+		};
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				return {
+					passed: false,
+					errors: "verifier crashed",
+					commands: [cmd("bash gate.sh", false)],
+					inconclusive: true,
+				};
+			},
+		};
+		const ws = fakeWorkspace();
+		const persist = recordingPersister();
+
+		const res = await runToGate(
+			{ id: "t4b", prompt: "p", base: { model: "luna", effort: "high" } },
+			{ agent, workspace: ws, gate, persist },
+			{ maxAttempts: 3 },
+		);
+
+		expect(res.passed).toBe(false);
+		// Default budget: the first verify plus DEFAULT_MAX_REVERIFIES re-runs.
+		expect(verifyCalls).toBe(3);
+		// The strong tier was never paid for: a gate that cannot judge is not a model failure.
+		expect(dispatches).toBe(1);
+		expect(res.attempts).toBe(1);
+		expect(res.finalConfig).toEqual({ model: "luna", effort: "high" });
+		expect(res.errors).toContain("gate inconclusive after 3 verification run(s)");
+		expect(res.errors).toContain("verifier crashed");
+		expect(res.gateCommands).toEqual(["bash gate.sh"]);
+		expect(res.timeline).toHaveLength(1);
+		expect(res.timeline[0].verdict).toBe("void");
+		expect(ws.committed).toEqual([]);
+		expect(persist.states.at(-1)).toBe("failed");
+	});
+
+	it("honors maxReverifies, including zero (an inconclusive gate voids immediately)", async () => {
+		let verifyCalls = 0;
+		const gate: Gate = {
+			async verify(): Promise<GateResult> {
+				verifyCalls++;
+				return { passed: false, errors: "flake", commands: [], inconclusive: true };
+			},
+		};
+		const agent: Agent = {
+			async dispatch() {
+				return { text: "x" };
+			},
+		};
+
+		const res = await runToGate(
+			{ id: "t4c", prompt: "p" },
+			{ agent, workspace: fakeWorkspace(), gate, persist: recordingPersister() },
+			{ maxReverifies: 0 },
+		);
+
+		expect(res.passed).toBe(false);
+		expect(verifyCalls).toBe(1);
+		expect(res.errors).toContain("after 1 verification run(s)");
+	});
+
+	it("a re-verify that settles into a clean failure feeds the errors back and escalates as usual", async () => {
+		const prompts: string[] = [];
+		const configs: ModelEffort[] = [];
+		let verifyCalls = 0;
+		const agent: Agent = {
+			async dispatch(d) {
+				prompts.push(d.prompt);
+				configs.push(d.config);
 				return { text: "x" };
 			},
 		};
@@ -311,18 +423,27 @@ describe("runToGate", () => {
 			async verify(): Promise<GateResult> {
 				verifyCalls++;
 				if (verifyCalls === 1) return { passed: false, errors: "flake", commands: [], inconclusive: true };
+				if (verifyCalls === 2) return { passed: false, errors: "REAL FAILURE", commands: [] };
 				return { passed: true, errors: "", commands: [] };
 			},
 		};
 
 		const res = await runToGate(
-			{ id: "t4", prompt: "ORIGINAL" },
+			{ id: "t4d", prompt: "ORIGINAL", base: { model: "luna", effort: "high" } },
 			{ agent, workspace: fakeWorkspace(), gate, persist: recordingPersister() },
 		);
 
 		expect(res.passed).toBe(true);
-		// The inconclusive verdict must not have rewritten the prompt with error feedback.
-		expect(prompts.every((p) => p === "ORIGINAL")).toBe(true);
+		expect(res.attempts).toBe(2);
+		// The flake left no trace in the feedback; the real failure did.
+		expect(prompts[0]).toBe("ORIGINAL");
+		expect(prompts[1]).toContain("REAL FAILURE");
+		expect(prompts[1]).not.toContain("flake");
+		// One rung climbed, for the real failure only.
+		expect(configs).toEqual([
+			{ model: "luna", effort: "high" },
+			{ model: "luna", effort: "xhigh" },
+		]);
 	});
 
 	it("treats an empty no-cost dispatch as a non-pass (#19 false-pass guard), not a silent pass", async () => {
