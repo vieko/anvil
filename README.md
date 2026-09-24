@@ -86,8 +86,10 @@ Key options (`anvil --help` for the rest):
 3. The **gate** runs your verification commands in a clean environment and has
    the only vote on "done":
    - **pass** → Anvil commits the work and stops.
-   - **fail** → the errors feed the next attempt, and the model escalates
-     (`sonnet` by default, up to `opus` only when the gate keeps failing).
+   - **fail** → the errors feed the next attempt, and the config escalates:
+     one same-model retry a notch up in effort (the errors alone fix most
+     cheap-model failures), then the strong tier (`sonnet` by default, up to
+     `opus` only when the gate keeps failing).
    - **inconclusive** (a flake, a timeout, or no gate) → Anvil re-verifies rather
      than call it a pass.
 4. The loop ends at the attempt cap. State persists outside your repo, so
