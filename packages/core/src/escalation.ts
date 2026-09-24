@@ -10,10 +10,18 @@
 // tier is a parameter (anvil is provider-agnostic), not a hardcoded model.
 //
 // Ladder shape (with the default 3-attempt cap, the climb is intentionally
-// aggressive — jump straight to `high`, then switch model, then climb effort):
+// aggressive — one same-model retry, then switch model, then climb effort):
 //   1. If effort is below `high`, jump to `high` (same model).
-//   2. If on a weak-tier model, switch to the strong tier (keeping effort).
-//   3. Climb the strong model's effort toward `max`.
+//   2. Otherwise, if on a weak-tier model, climb one effort level on the same
+//      model. Either way a weak base gets exactly one cheap retry with the gate
+//      errors before the strong tier is paid for: on the observed record
+//      (2026-09, 63 luna-based runs) a third of luna's gate failures were
+//      mechanical (formatter, lockfile hygiene, stale comments) that the error
+//      feedback fixes on any model, and a luna attempt costs ~1/150 of a
+//      strong-rung attempt. The strong model's own effort climb rescued 0/3.
+//   3. If on a weak-tier model, switch to the strong tier at the base's
+//      `high`-or-above effort (the retry rung's effort bump does not carry).
+//   4. Climb the strong model's effort toward `max`.
 //
 // When the policy carries a `supportedEfforts` capability seam, every rung
 // (including rung 0, the user's explicit base) is clamped to the model's
@@ -111,18 +119,25 @@ export function buildEscalationLadder(base: ModelEffort, policy: EscalationPolic
 	let model = base.model;
 	let idx = effortIndex(base.effort);
 	const highIdx = EFFORT_LADDER.indexOf("high");
+	const weak = weakTier.test(model) && model !== strongModel;
 
-	// 1. Jump to `high` if currently below it (same model).
 	if (idx < highIdx) {
+		// 1. Jump to `high` if currently below it (same model).
 		idx = highIdx;
 		rungs.push({ model, effort: EFFORT_LADDER[idx] });
+	} else if (weak && idx + 1 < EFFORT_LADDER.length) {
+		// 2. One same-model retry for a weak base already at `high`+: one effort
+		//    level up, without moving `idx` (the strong tier enters at the base
+		//    effort). Clamping collapses this rung into rung 0 for models whose
+		//    verified ceiling is the base effort, so it never costs a duplicate.
+		rungs.push({ model, effort: EFFORT_LADDER[idx + 1] });
 	}
-	// 2. Switch a weak-tier model up to the strong tier at the current effort.
-	if (weakTier.test(model) && model !== strongModel) {
+	// 3. Switch a weak-tier model up to the strong tier at the current effort.
+	if (weak) {
 		model = strongModel;
 		rungs.push({ model, effort: EFFORT_LADDER[idx] });
 	}
-	// 3. Climb the (stronger) model's effort toward `max`.
+	// 4. Climb the (stronger) model's effort toward `max`.
 	for (let i = idx + 1; i < EFFORT_LADDER.length; i++) {
 		rungs.push({ model, effort: EFFORT_LADDER[i] });
 	}

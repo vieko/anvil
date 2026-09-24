@@ -34,32 +34,57 @@ describe("buildEscalationLadder", () => {
 		expect(ladder.slice(1).map((r) => r.effort)).not.toContain("medium");
 	});
 
-	it("switches model first when already at high (sonnet@high)", () => {
+	it("gives a weak base already at high one same-model retry (sonnet@xhigh) before the model switch", () => {
 		expect(buildEscalationLadder({ model: "sonnet", effort: "high" })).toEqual([
 			{ model: "sonnet", effort: "high" },
+			{ model: "sonnet", effort: "xhigh" },
 			{ model: "opus", effort: "high" },
 			{ model: "opus", effort: "xhigh" },
 			{ model: "opus", effort: "max" },
 		]);
 	});
 
-	it("treats budget-tier models (luna/sol/terra/glm) as weak: luna@high -> opus@high", () => {
+	it("enters the strong tier at the base effort, not the retry rung's bump (sonnet@high -> ... -> opus@high)", () => {
+		const ladder = buildEscalationLadder({ model: "sonnet", effort: "high" });
+		expect(ladder.find((rung) => rung.model === "opus")).toEqual({ model: "opus", effort: "high" });
+	});
+
+	it("gives a weak base exactly one same-model retry: a below-high base uses the jump to high as its retry", () => {
+		// sonnet@low: the jump to high IS the retry; no extra sonnet@xhigh rung, or
+		// the default 3-attempt cap would never reach the strong tier.
+		const ladder = buildEscalationLadder({ model: "sonnet", effort: "low" });
+		expect(ladder.filter((rung) => rung.model === "sonnet")).toEqual([
+			{ model: "sonnet", effort: "low" },
+			{ model: "sonnet", effort: "high" },
+		]);
+	});
+
+	it("treats budget-tier models (luna/sol/terra/glm) as weak: luna@high -> luna@xhigh -> opus@high", () => {
 		expect(buildEscalationLadder({ model: "luna", effort: "high" })).toEqual([
 			{ model: "luna", effort: "high" },
+			{ model: "luna", effort: "xhigh" },
 			{ model: "opus", effort: "high" },
 			{ model: "opus", effort: "xhigh" },
 			{ model: "opus", effort: "max" },
 		]);
 	});
 
-	it("treats sol as weak-tier (sonnet's rung price on OpenAI's route): sol@high -> opus@high", () => {
+	it("treats sol as weak-tier (sonnet's rung price on OpenAI's route): sol@high -> sol@xhigh -> opus@high", () => {
 		expect(DEFAULT_WEAK_TIER.test("sol")).toBe(true);
 		expect(DEFAULT_WEAK_TIER.test("openai/gpt-6-sol")).toBe(true);
 		expect(DEFAULT_WEAK_TIER.test("openai/gpt-6-luna")).toBe(true);
 		expect(buildEscalationLadder({ model: "sol", effort: "high" })).toEqual([
 			{ model: "sol", effort: "high" },
+			{ model: "sol", effort: "xhigh" },
 			{ model: "opus", effort: "high" },
 			{ model: "opus", effort: "xhigh" },
+			{ model: "opus", effort: "max" },
+		]);
+	});
+
+	it("skips the retry rung for a weak base already at max (nothing above it to climb to)", () => {
+		expect(buildEscalationLadder({ model: "sonnet", effort: "max" })).toEqual([
+			{ model: "sonnet", effort: "max" },
 			{ model: "opus", effort: "max" },
 		]);
 	});
@@ -69,8 +94,8 @@ describe("buildEscalationLadder", () => {
 		expect(DEFAULT_WEAK_TIER.test("opus")).toBe(false);
 		expect(DEFAULT_WEAK_TIER.test("anthropic/claude-opus-5.5")).toBe(false);
 		const ladder = buildEscalationLadder({ model: "sonnet", effort: "high" });
-		expect(ladder[1]).toEqual({ model: "opus", effort: "high" });
-		expect(ladder.slice(1).every((rung) => rung.model === "opus")).toBe(true);
+		expect(ladder[2]).toEqual({ model: "opus", effort: "high" });
+		expect(ladder.slice(2).every((rung) => rung.model === "opus")).toBe(true);
 	});
 
 	it("climbs effort only for a strong base (opus@low, no model switch)", () => {
@@ -114,9 +139,10 @@ describe("buildEscalationLadder", () => {
 		expect(ladder).toContainEqual({ model: "opus", effort: "high" });
 	});
 
-	it("preserves undefined effort at rung 0, then escalates to opus@high", () => {
+	it("preserves undefined effort at rung 0 (normalized to high), retries at xhigh, then escalates to opus@high", () => {
 		expect(buildEscalationLadder({ model: "anthropic/claude-sonnet-4.6", effort: undefined })).toEqual([
 			{ model: "anthropic/claude-sonnet-4.6", effort: undefined },
+			{ model: "anthropic/claude-sonnet-4.6", effort: "xhigh" },
 			{ model: "opus", effort: "high" },
 			{ model: "opus", effort: "xhigh" },
 			{ model: "opus", effort: "max" },
@@ -160,6 +186,40 @@ describe("buildEscalationLadder with supportedEfforts (catalog clamping, #31)", 
 	};
 	const supportedEfforts = (model: string) => catalog[model];
 
+	it("luna@high (xhigh ceiling) keeps its retry rung: luna@high -> luna@xhigh -> opus@high -> opus@xhigh -> opus@max", () => {
+		expect(buildEscalationLadder({ model: "luna", effort: "high" }, { supportedEfforts })).toEqual([
+			{ model: "luna", effort: "high" },
+			{ model: "luna", effort: "xhigh" },
+			{ model: "opus", effort: "high" },
+			{ model: "opus", effort: "xhigh" },
+			{ model: "opus", effort: "max" },
+		]);
+	});
+
+	it("drops the retry rung when the weak model's ceiling is the base effort (haiku@high -> opus@high)", () => {
+		// haiku verifies nothing above high: the xhigh retry clamps into rung 0
+		// and is skipped, so the paid attempt goes straight to the strong tier.
+		expect(buildEscalationLadder({ model: "haiku", effort: "high" }, { supportedEfforts })).toEqual([
+			{ model: "haiku", effort: "high" },
+			{ model: "opus", effort: "high" },
+			{ model: "opus", effort: "xhigh" },
+			{ model: "opus", effort: "max" },
+		]);
+	});
+
+	it("drops the retry rung for a weak base already at its ceiling (luna@xhigh -> opus@xhigh)", () => {
+		expect(buildEscalationLadder({ model: "luna", effort: "xhigh" }, { supportedEfforts })).toEqual([
+			{ model: "luna", effort: "xhigh" },
+			{ model: "opus", effort: "xhigh" },
+			{ model: "opus", effort: "max" },
+		]);
+	});
+
+	it("under the default 3-attempt cap a luna base ends on opus@high, not opus@xhigh", () => {
+		const climb = makeEscalator({ supportedEfforts });
+		expect(climb({ model: "luna", effort: "high" }, 2)).toEqual({ model: "opus", effort: "high" });
+	});
+
 	it("climbs effort only for an astra@high base (no model switch, no clamping): high -> xhigh -> max", () => {
 		expect(buildEscalationLadder({ model: "astra", effort: "high" }, { supportedEfforts })).toEqual([
 			{ model: "astra", effort: "high" },
@@ -192,6 +252,8 @@ describe("buildEscalationLadder with supportedEfforts (catalog clamping, #31)", 
 	});
 
 	it("clamps a base above the model's ceiling before the model switch", () => {
+		// haiku@xhigh clamps to high; the max retry rung also clamps to high and
+		// is skipped as a duplicate; the strong tier enters at the base's xhigh.
 		expect(buildEscalationLadder({ model: "haiku", effort: "xhigh" }, { supportedEfforts })).toEqual([
 			{ model: "haiku", effort: "high" },
 			{ model: "opus", effort: "xhigh" },
