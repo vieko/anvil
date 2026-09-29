@@ -38,7 +38,7 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	luna: "vercel-ai-gateway:openai/gpt-6-luna",
 	// Same rung price as sonnet-5; unlike sonnet through the gateway it does not
 	// drop edit tool bodies in transit (`edits: [{}]`).
-	sol: "vercel-ai-gateway:openai/gpt-6-sol",
+	sol: "vercel-ai-gateway:openai/gpt-6.1-sol",
 	terra: "vercel-ai-gateway:openai/gpt-5.6-terra",
 	glm: "vercel-ai-gateway:zai/glm-5.3",
 	// Opt-in strong base (1M+ context, OpenAI's strengths); not the default strong
