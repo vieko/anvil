@@ -20,7 +20,7 @@ describe("createModelResolver", () => {
 		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
 		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-6-luna");
-		expect(resolve({ model: "sol" }).id).toBe("openai/gpt-6-sol");
+		expect(resolve({ model: "sol" }).id).toBe("openai/gpt-6.1-sol");
 		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-5.6-terra");
 		expect(resolve({ model: "glm" }).id).toBe("zai/glm-5.3");
 		expect(resolve({ model: "fable" }).id).toBe("anthropic/claude-fable-5.1");
@@ -102,7 +102,7 @@ describe("createModelResolver", () => {
 	it("fences every openai/* gateway model to OpenAI's route; only astra gets a thinking overlay", () => {
 		const resolve = createModelResolver();
 		for (const [alias, id] of [
-			["sol", "openai/gpt-6-sol"],
+			["sol", "openai/gpt-6.1-sol"],
 			["luna", "openai/gpt-6-luna"],
 			["terra", "openai/gpt-5.6-terra"],
 		] as const) {
@@ -119,8 +119,8 @@ describe("createModelResolver", () => {
 			expect(model).not.toBe(registry);
 			expect(registry.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
 		}
-		// sol matches sonnet's rung price on the gateway.
-		expect(resolve({ model: "sol" }).cost).toEqual({ input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 });
+		// sol matches sonnet's rung price on the gateway (6.1 halves the cache-read rate).
+		expect(resolve({ model: "sol" }).cost).toEqual({ input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 });
 		expect(resolve({ model: "luna" }).cost).toEqual({ input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 });
 	});
 
