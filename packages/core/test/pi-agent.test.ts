@@ -1,73 +1,67 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import type { Model, MutableModels, RetryPolicy } from "@earendil-works/pi-ai";
-import {
-	createModels,
-	fauxAssistantMessage,
-	fauxProvider,
-	fauxText,
-	fauxThinking,
-	fauxToolCall,
-} from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
+import type { AgentSession, CreateAgentSessionOptions, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentActivity, ModelEffort } from "../src/index.ts";
-import { DEFAULT_RETRY_POLICY, PiAgent } from "../src/node/pi-agent.ts";
+import { NodeExecEnv } from "../src/node/exec-env.ts";
+import { withGatewayCompat } from "../src/node/model-resolver.ts";
+import { DEFAULT_RETRY_POLICY, PiAgent, type RetryPolicy } from "../src/node/pi-agent.ts";
+import { fauxModelRuntime } from "./support/faux-runtime.ts";
 
-// Captured by the `AgentHarness.create` spy installed below, so retry/thinking
-// tests can assert on the options PiAgent actually hands to the harness. pi 0.85
-// builds harnesses through an async factory (the constructor is private), so the
-// spy wraps `create` instead of subclassing.
-let capturedRetry: RetryPolicy | undefined;
-let capturedThinkingLevel: ThinkingLevel | undefined;
+// Captured by the `createAgentSession` spy installed below, so retry/thinking/
+// hermeticity tests can assert on what PiAgent actually hands the SDK and on
+// the live session it gets back.
+let captured: { options: CreateAgentSessionOptions; session: AgentSession }[] = [];
 
-vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
+vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
 	return {
 		...actual,
-		AgentHarness: {
-			...actual.AgentHarness,
-			create: (options: any, context: any) => {
-				capturedRetry = options.retry;
-				capturedThinkingLevel = options.thinkingLevel;
-				return actual.AgentHarness.create(options, context);
-			},
+		createAgentSession: async (options: CreateAgentSessionOptions) => {
+			const result = await actual.createAgentSession(options);
+			captured.push({ options, session: result.session });
+			return result;
 		},
 	};
 });
 
-// Drives the real AgentHarness against pi-ai's faux provider — no network, no
-// API key, no tools. Exercises the Agent seam: text/usage/sessionId extraction,
-// provider-agnostic model resolution, and resume reusing a session.
+function lastCreated() {
+	const last = captured.at(-1);
+	if (!last) throw new Error("expected a created session");
+	return last;
+}
+
+// Drives the real pi coding-agent SDK (createAgentSession) against pi-ai's faux
+// provider in a hermetic model runtime -- no network, no API key. Exercises the
+// Agent seam: text/usage/sessionId extraction, provider-agnostic model
+// resolution, resume reusing a session, and the dispatch failure mapping.
 
 let faux: ReturnType<typeof fauxProvider>;
 let model: Model<string>;
-let models: MutableModels;
-let env: NodeExecutionEnv;
+let modelRuntime: ModelRuntime;
+let env: NodeExecEnv;
 
-beforeEach(() => {
-	capturedRetry = undefined;
-	capturedThinkingLevel = undefined;
+beforeEach(async () => {
+	captured = [];
 	faux = fauxProvider({
 		models: [{ id: "faux-cheap", cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 } }],
 	});
 	model = faux.getModel();
-	models = createModels();
-	models.setProvider(faux.provider);
-	env = new NodeExecutionEnv({ cwd: tmpdir() });
+	modelRuntime = await fauxModelRuntime(faux.provider);
+	env = new NodeExecEnv({ cwd: tmpdir() });
 });
 
-afterEach(async () => {
-	await env.cleanup(BACKGROUND_CONTEXT);
+afterEach(() => {
+	for (const { session } of captured) session.dispose();
 });
 
 describe("PiAgent.dispatch", () => {
 	it("runs one turn and returns text + usage + a session id", async () => {
 		faux.setResponses([fauxAssistantMessage("the outcome is done")]);
-		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 
 		const res = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
 
@@ -79,7 +73,7 @@ describe("PiAgent.dispatch", () => {
 	it("reports usage summed across every turn_end in the dispatch, not just the final message (#12)", async () => {
 		// Control: the same final answer with no tool call -- one turn, one turn_end.
 		faux.setResponses([fauxAssistantMessage("the outcome is done")]);
-		const controlAgent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const controlAgent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 		const control = await controlAgent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
 
 		// A tool-call turn followed by the same final answer: two assistant messages,
@@ -90,7 +84,7 @@ describe("PiAgent.dispatch", () => {
 			fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("the outcome is done"),
 		]);
-		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 		const res = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
 
 		expect(res.text).toBe("the outcome is done");
@@ -105,7 +99,7 @@ describe("PiAgent.dispatch", () => {
 			fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("the outcome is done"),
 		]);
-		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 		const res = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
 
 		const usage = res.usage;
@@ -119,7 +113,7 @@ describe("PiAgent.dispatch", () => {
 		const { cost: _cost, ...uncosted } = model as Model<string> & { cost: unknown };
 		const agent = new PiAgent({
 			env,
-			models,
+			modelRuntime,
 			resolveModel: () => uncosted as Model<string>,
 			systemPrompt: "test",
 		});
@@ -134,7 +128,7 @@ describe("PiAgent.dispatch", () => {
 		const seen: ModelEffort[] = [];
 		const agent = new PiAgent({
 			env,
-			models,
+			modelRuntime,
 			systemPrompt: "test",
 			resolveModel: (config) => {
 				seen.push(config);
@@ -153,7 +147,7 @@ describe("PiAgent.dispatch", () => {
 
 	it("reuses the same session when resume is the prior session id", async () => {
 		faux.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
-		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 
 		const first = await agent.dispatch({ prompt: "p1", config: { model: "m" } });
 		const second = await agent.dispatch({ prompt: "p2", config: { model: "m" }, resume: first.sessionId });
@@ -173,7 +167,7 @@ describe("PiAgent.dispatch", () => {
 		};
 		const capable = { ...model, reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" } } as Model<string>;
 		faux.setResponses([reply("first"), reply("second")]);
-		const agent = new PiAgent({ env, models, resolveModel: () => capable, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => capable, systemPrompt: "test" });
 
 		const first = await agent.dispatch({ prompt: "p1", config: { model: "opus", effort: "high" } });
 		const second = await agent.dispatch({
@@ -187,43 +181,63 @@ describe("PiAgent.dispatch", () => {
 		expect(second.text).toBe("second");
 	});
 
-	it("carries anvil's gateway compat overlay into the request the provider receives", async () => {
-		// The harness stores only a { provider, modelId } identity and re-resolves
-		// each request from the Models collection, so this is the pin that the
-		// mid-convo-effort overlay survives that round trip instead of being dropped.
+	it("carries anvil's gateway compat overlay into the request after createAgentSession and after setModel", async () => {
+		// The session sends the exact Model object it holds; this pins that the
+		// resolver's withGatewayCompat clone is what the provider receives on the
+		// first dispatch AND after an escalation's setModel, so a registry refresh
+		// swapping in the bare catalog model cannot go unnoticed.
 		const gateway = fauxProvider({
 			provider: "vercel-ai-gateway",
-			models: [{ id: "anthropic/claude-opus-5" }],
+			models: [{ id: "anthropic/claude-opus-5" }, { id: "anthropic/claude-opus-5.5" }],
 		});
-		const gatewayModels = createModels();
-		gatewayModels.setProvider(gateway.provider);
-		const seen: unknown[] = [];
-		gateway.setResponses([
-			(_ctx, _options, _state, requestModel) => {
-				seen.push(requestModel.compat);
-				return fauxAssistantMessage("done");
-			},
-		]);
+		const runtime = await fauxModelRuntime(gateway.provider);
+		const seen: { id: string; compat: unknown }[] = [];
+		const record = (_ctx: unknown, _options: unknown, _state: unknown, requestModel: Model<string>) => {
+			seen.push({ id: requestModel.id, compat: requestModel.compat });
+			return fauxAssistantMessage("done");
+		};
+		gateway.setResponses([record, record]);
+		const resolved = new Map<string, Model<string>>();
 		const agent = new PiAgent({
 			env,
-			models: gatewayModels,
-			resolveModel: () => gateway.getModel("anthropic/claude-opus-5") as Model<string>,
+			modelRuntime: runtime,
+			resolveModel: ({ model: id }) => {
+				let m = resolved.get(id);
+				if (!m) {
+					m = withGatewayCompat(gateway.getModel(id) as Model<string>);
+					resolved.set(id, m);
+				}
+				return m;
+			},
 			systemPrompt: "test",
 		});
 
-		await agent.dispatch({ prompt: "go", config: { model: "opus", effort: "high" } });
+		const first = await agent.dispatch({ prompt: "go", config: { model: "anthropic/claude-opus-5", effort: "high" } });
+		await agent.dispatch({
+			prompt: "again",
+			config: { model: "anthropic/claude-opus-5.5", effort: "high" },
+			resume: first.sessionId,
+		});
 
+		const overlay = expect.objectContaining({
+			vercelGatewayRouting: { only: ["anthropic"] },
+			supportsStrictTools: true,
+			supportsMidConvoEffort: true,
+			supportsMidConvoToolChanges: false,
+		});
 		expect(seen).toEqual([
-			expect.objectContaining({ supportsMidConvoEffort: true, vercelGatewayRouting: { only: ["anthropic"] } }),
+			{ id: "anthropic/claude-opus-5", compat: overlay },
+			{ id: "anthropic/claude-opus-5.5", compat: overlay },
 		]);
 	});
 
-	describe("before_payload gateway routing hook", () => {
+	describe("before_provider_request gateway routing extension", () => {
 		// pi's anthropic-messages adapter never sends `compat.vercelGatewayRouting`
-		// (pi#9211), so PiAgent enforces the pin itself via the harness's
-		// `before_payload` hook. The faux provider hands the response factory the
-		// same stream options a real adapter gets, so calling `onPayload` from it
-		// drives the registered hook end-to-end and captures what it returns.
+		// (pi#9211), so PiAgent enforces the pin itself via an inline
+		// `before_provider_request` extension -- loaded while every discovered
+		// extension is off (`noExtensions`). The faux provider hands the response
+		// factory the same stream options a real adapter gets, so calling
+		// `onPayload` from it drives the registered hook end-to-end.
 		interface Captured {
 			input: Record<string, unknown>;
 			snapshot: Record<string, unknown>;
@@ -236,8 +250,7 @@ describe("PiAgent.dispatch", () => {
 			payload: Record<string, unknown> = { model: modelId, messages: [] },
 		): Promise<Captured> {
 			const gateway = fauxProvider({ provider, models: [{ id: modelId }] });
-			const gatewayModels = createModels();
-			gatewayModels.setProvider(gateway.provider);
+			const runtime = await fauxModelRuntime(gateway.provider);
 			const snapshot = structuredClone(payload);
 			let output: unknown;
 			gateway.setResponses([
@@ -248,17 +261,21 @@ describe("PiAgent.dispatch", () => {
 			]);
 			const agent = new PiAgent({
 				env,
-				models: gatewayModels,
-				resolveModel: () => gateway.getModel(modelId) as Model<string>,
+				modelRuntime: runtime,
+				resolveModel: () => withGatewayCompat(gateway.getModel(modelId) as Model<string>),
 				systemPrompt: "test",
 			});
 			await agent.dispatch({ prompt: "go", config: { model: modelId, effort: "high" } });
 			return { input: payload, snapshot, output };
 		}
 
-		it("fences a gateway anthropic model to providerOptions.gateway.only = ['anthropic']", async () => {
+		it("fires with noExtensions set and fences a gateway anthropic model to gateway.only = ['anthropic']", async () => {
 			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "anthropic/claude-opus-5");
 
+			// The loader really ran with discovery off: only the inline extension loaded.
+			const { options } = lastCreated();
+			const loaded = options.resourceLoader?.getExtensions().extensions ?? [];
+			expect(loaded).toHaveLength(1);
 			expect(output).toEqual({
 				model: "anthropic/claude-opus-5",
 				messages: [],
@@ -293,7 +310,7 @@ describe("PiAgent.dispatch", () => {
 		});
 
 		it("leaves a gateway model without the compat pin untouched", async () => {
-			// The harness resolves an unchanged hook to the original payload object.
+			// An unchanged hook resolves to the original payload object.
 			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "zai/glm-5.3");
 
 			expect(output).toBe(input);
@@ -320,7 +337,7 @@ describe("PiAgent.dispatch", () => {
 
 	it("starts a fresh session when not resuming", async () => {
 		faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
-		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 
 		const first = await agent.dispatch({ prompt: "p1", config: { model: "m" } });
 		const second = await agent.dispatch({ prompt: "p2", config: { model: "m" } });
@@ -337,7 +354,7 @@ describe("PiAgent.dispatch", () => {
 		const activity: AgentActivity[] = [];
 		const agent = new PiAgent({
 			env,
-			models,
+			modelRuntime,
 			resolveModel: () => model,
 			systemPrompt: "test",
 			onActivity: (event) => activity.push(event),
@@ -359,7 +376,7 @@ describe("PiAgent.dispatch", () => {
 
 	it("exposes ANVIL_RUN_ID/ANVIL_ATTEMPT/ANVIL_MODEL/ANVIL_EFFORT to commands run via the bash tool", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "anvil-bash-env-"));
-		const toolEnv = new NodeExecutionEnv({ cwd: dir });
+		const toolEnv = new NodeExecEnv({ cwd: dir });
 		try {
 			faux.setResponses([
 				fauxAssistantMessage(
@@ -374,7 +391,7 @@ describe("PiAgent.dispatch", () => {
 				),
 				fauxAssistantMessage("done"),
 			]);
-			const agent = new PiAgent({ env: toolEnv, models, resolveModel: () => model, systemPrompt: "test" });
+			const agent = new PiAgent({ env: toolEnv, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 
 			await agent.dispatch({
 				prompt: "go",
@@ -386,21 +403,20 @@ describe("PiAgent.dispatch", () => {
 			const out = await readFile(join(dir, "out.txt"), "utf8");
 			expect(out).toBe("run-1:1:faux-cheap:high");
 		} finally {
-			await toolEnv.cleanup(BACKGROUND_CONTEXT);
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
 	it("advances ANVIL_ATTEMPT (and escalated model/effort) across attempts, without leaking the prior attempt's values", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "anvil-bash-env-"));
-		const toolEnv = new NodeExecutionEnv({ cwd: dir });
+		const toolEnv = new NodeExecEnv({ cwd: dir });
 		try {
 			const cmd = 'printf "%s:%s:%s:%s" "$ANVIL_RUN_ID" "$ANVIL_ATTEMPT" "$ANVIL_MODEL" "$ANVIL_EFFORT" > out.txt';
 			faux.setResponses([
 				fauxAssistantMessage([fauxToolCall("bash", { command: cmd })], { stopReason: "toolUse" }),
 				fauxAssistantMessage("first done"),
 			]);
-			const agent = new PiAgent({ env: toolEnv, models, resolveModel: () => model, systemPrompt: "test" });
+			const agent = new PiAgent({ env: toolEnv, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 
 			await agent.dispatch({
 				prompt: "go",
@@ -422,29 +438,28 @@ describe("PiAgent.dispatch", () => {
 			});
 			expect(await readFile(join(dir, "out.txt"), "utf8")).toBe("run-1:2:faux-strong:high");
 		} finally {
-			await toolEnv.cleanup(BACKGROUND_CONTEXT);
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
 	it("defaults to DEFAULT_RETRY_POLICY (enabled, 3 retries, 2s base delay) when no retry is supplied", async () => {
 		faux.setResponses([fauxAssistantMessage("done")]);
-		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 
 		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
 
 		expect(DEFAULT_RETRY_POLICY).toEqual({ enabled: true, maxRetries: 3, baseDelayMs: 2000 });
-		expect(capturedRetry).toEqual(DEFAULT_RETRY_POLICY);
+		expect(lastCreated().options.settingsManager?.getRetrySettings()).toMatchObject(DEFAULT_RETRY_POLICY);
 	});
 
-	it("threads an overridden PiAgentOptions.retry through to the harness", async () => {
+	it("threads an overridden PiAgentOptions.retry through to the session settings", async () => {
 		faux.setResponses([fauxAssistantMessage("done")]);
 		const override: RetryPolicy = { enabled: false, maxRetries: 0, baseDelayMs: 100 };
-		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test", retry: override });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test", retry: override });
 
 		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
 
-		expect(capturedRetry).toEqual(override);
+		expect(lastCreated().options.settingsManager?.getRetrySettings()).toMatchObject(override);
 	});
 
 	it("clamps the thinking level to the resolved model's verified levels (max unverified -> high)", async () => {
@@ -452,30 +467,33 @@ describe("PiAgent.dispatch", () => {
 		// A reasoning model with no thinkingLevelMap: pi 0.82 treats xhigh/max as
 		// unverified, so a requested max must clamp down to high before dispatch.
 		const limited = { ...model, reasoning: true } as Model<string>;
-		const agent = new PiAgent({ env, models, resolveModel: () => limited, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => limited, systemPrompt: "test" });
 
 		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap", effort: "max" } });
 
-		expect(capturedThinkingLevel).toBe("high");
+		expect(lastCreated().options.thinkingLevel).toBe("high");
+		expect(lastCreated().session.thinkingLevel).toBe("high");
 	});
 
-	it("passes max through to the harness when the model verifies it (regression: stale max -> xhigh mapping)", async () => {
+	it("passes max through to the session when the model verifies it (regression: stale max -> xhigh mapping)", async () => {
 		faux.setResponses([fauxAssistantMessage("done")]);
 		const capable = { ...model, reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" } } as Model<string>;
-		const agent = new PiAgent({ env, models, resolveModel: () => capable, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => capable, systemPrompt: "test" });
 
 		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap", effort: "max" } });
 
-		expect(capturedThinkingLevel).toBe("max");
+		expect(lastCreated().options.thinkingLevel).toBe("max");
+		expect(lastCreated().session.thinkingLevel).toBe("max");
 	});
 
-	it("leaves the thinking level undefined when no effort is requested (provider default)", async () => {
+	it("leaves the level to the SDK default (clamped) when no effort is requested", async () => {
+		// Only direct PiAgent callers reach this; runToGate always requests an effort.
 		faux.setResponses([fauxAssistantMessage("done")]);
-		const agent = new PiAgent({ env, models, resolveModel: () => model, systemPrompt: "test" });
+		const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
 
 		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
 
-		expect(capturedThinkingLevel).toBeUndefined();
+		expect(lastCreated().options.thinkingLevel).toBeUndefined();
 	});
 
 	it("forwards the model's reasoning trace as a reasoning activity (on thinking_end)", async () => {
@@ -484,7 +502,7 @@ describe("PiAgent.dispatch", () => {
 		const activity: AgentActivity[] = [];
 		const agent = new PiAgent({
 			env,
-			models,
+			modelRuntime,
 			resolveModel: () => reasoning,
 			systemPrompt: "test",
 			onActivity: (event) => activity.push(event),
@@ -493,5 +511,122 @@ describe("PiAgent.dispatch", () => {
 		await agent.dispatch({ prompt: "go", config: { model: "faux-cheap", effort: "high" } });
 
 		expect(activity).toContainEqual({ kind: "reasoning", text: "weigh the options, then act" });
+	});
+
+	describe("failure mapping (the gate stays the sole authority)", () => {
+		it("throws when the final turn errored (after pi's own retries), never reporting success", async () => {
+			faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "boom" })]);
+			const agent = new PiAgent({
+				env,
+				modelRuntime,
+				resolveModel: () => model,
+				systemPrompt: "test",
+				retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 },
+			});
+
+			await expect(agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } })).rejects.toThrow(
+				/did not complete \(error: boom\)/,
+			);
+		});
+
+		it("throws when the caller aborts mid-run", async () => {
+			const controller = new AbortController();
+			faux.setResponses([
+				async () => {
+					controller.abort();
+					await new Promise((resolve) => setTimeout(resolve, 50));
+					return fauxAssistantMessage("too late");
+				},
+			]);
+			const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
+
+			await expect(
+				agent.dispatch({ prompt: "go", config: { model: "faux-cheap" }, signal: controller.signal }),
+			).rejects.toThrow(/abort/);
+		});
+
+		it("throws without starting a run when the signal is already aborted", async () => {
+			faux.setResponses([fauxAssistantMessage("never")]);
+			const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
+
+			await expect(
+				agent.dispatch({ prompt: "go", config: { model: "faux-cheap" }, signal: AbortSignal.abort() }),
+			).rejects.toThrow(/aborted before it started/);
+			expect(faux.state.callCount).toBe(0);
+		});
+
+		it("treats an outcome that starts with '/' as text, not a command", async () => {
+			const seen: string[] = [];
+			faux.setResponses([
+				(context) => {
+					const last = context.messages.at(-1);
+					if (last?.role === "user") {
+						const content = last.content;
+						seen.push(
+							typeof content === "string" ? content : content.map((c) => (c.type === "text" ? c.text : "")).join(""),
+						);
+					}
+					return fauxAssistantMessage("done");
+				},
+			]);
+			const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
+
+			const res = await agent.dispatch({ prompt: "/compact the readme", config: { model: "faux-cheap" } });
+
+			expect(res.text).toBe("done");
+			expect(seen).toEqual(["/compact the readme"]);
+		});
+	});
+
+	describe("hermetic sessions", () => {
+		it("sends only anvil's system prompt: no host or target-repo context files, skills, or append prompts", async () => {
+			const dir = await mkdtemp(join(tmpdir(), "anvil-hermetic-"));
+			try {
+				await writeFile(join(dir, "AGENTS.md"), "MARKER-AGENTS-MD must never reach a golem\n");
+				await writeFile(join(dir, "CLAUDE.md"), "MARKER-CLAUDE-MD must never reach a golem\n");
+				const prompts: string[] = [];
+				faux.setResponses([
+					(context) => {
+						// pi 1.x carries the system prompt as a transcript message.
+						prompts.push(JSON.stringify(context.messages));
+						return fauxAssistantMessage("done");
+					},
+				]);
+				const agent = new PiAgent({
+					env: new NodeExecEnv({ cwd: dir }),
+					modelRuntime,
+					resolveModel: () => model,
+					systemPrompt: "ANVIL-PROMPT",
+				});
+
+				await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
+
+				expect(prompts).toHaveLength(1);
+				expect(prompts[0]).toContain("ANVIL-PROMPT");
+				expect(prompts[0]).not.toContain("MARKER-");
+				const { options, session } = lastCreated();
+				expect(options.resourceLoader?.getSkills().skills).toEqual([]);
+				expect(options.resourceLoader?.getPrompts().prompts).toEqual([]);
+				expect(options.resourceLoader?.getAgentsFiles().agentsFiles).toEqual([]);
+				// Only anvil's own tools are active: pi's built-ins are off.
+				expect([...session.getActiveToolNames()].sort()).toEqual(["bash", "edit", "read", "write"]);
+				// The agent dir handed to the SDK is never created.
+				await expect(access(options.agentDir ?? "")).rejects.toThrow();
+			} finally {
+				await rm(dir, { recursive: true, force: true });
+			}
+		});
+
+		it("runs with compaction, cache warming, and install telemetry off", async () => {
+			faux.setResponses([fauxAssistantMessage("done")]);
+			const agent = new PiAgent({ env, modelRuntime, resolveModel: () => model, systemPrompt: "test" });
+
+			await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
+
+			const settings = lastCreated().options.settingsManager;
+			expect(settings?.getCompactionEnabled()).toBe(false);
+			expect(settings?.getCacheWarmingMode()).toBe("off");
+			expect(settings?.getEnableInstallTelemetry()).toBe(false);
+		});
 	});
 });

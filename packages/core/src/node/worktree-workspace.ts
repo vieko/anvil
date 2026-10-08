@@ -1,10 +1,8 @@
 import { cp, glob, mkdir, rm, symlink } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import type { ShellOutputLimits } from "@earendil-works/pi-agent-core";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { ExecOptions, ExecResult, Workspace } from "../index.ts";
 import { detectPackageManager, type PackageManager } from "./command-gate.ts";
-import { contextFor, execCaptured } from "./pi-exec.ts";
+import { NodeExecEnv, type OutputLimits } from "./exec-env.ts";
 
 export interface WorktreeWorkspaceOptions {
 	/** Repository to branch from (its root). */
@@ -19,7 +17,7 @@ export interface WorktreeWorkspaceOptions {
 	env?: Record<string, string>;
 	/** Default per-command timeout (ms). Defaults to no timeout. */
 	timeoutMs?: number;
-	/** Custom shell path for the underlying pi ExecutionEnv. */
+	/** Custom bash path for the underlying exec env. */
 	shellPath?: string;
 	/**
 	 * Glob patterns (relative to the repo root) to link into the worktree before
@@ -49,11 +47,11 @@ export interface WorktreeWorkspaceOptions {
 	scopeGlobs?: string[];
 }
 
-// pi 0.85 bounds shell output at the source, so a workspace command must name a
-// cap. This one sits far above the gate's own 10KB feedback cut and any
+// The exec env bounds shell output at the source, so a workspace command must
+// name a cap. This one sits far above the gate's own 10KB feedback cut and any
 // plausible `git status`/`git diff` listing, so the gate and the git bookkeeping
 // keep seeing complete output in practice.
-const OUTPUT_LIMITS: ShellOutputLimits = { maxBytes: 8 * 1024 * 1024, maxLines: 200_000, retain: "tail" };
+const OUTPUT_LIMITS: OutputLimits = { maxBytes: 8 * 1024 * 1024, maxLines: 200_000 };
 
 // Committer identity so commits never fail in a temp repo with no global git
 // identity configured. Overridable by the repo's own config when present.
@@ -65,12 +63,12 @@ const GIT_IDENTITY: Record<string, string> = {
 };
 
 /**
- * A {@link Workspace} backed by a git worktree and a pi `NodeExecutionEnv`.
+ * A {@link Workspace} backed by a git worktree and an anvil {@link NodeExecEnv}.
  *
  * Isolation: each run gets its own worktree on a dedicated branch, so parallel
- * runs never touch each other's files. The same `ExecutionEnv` ({@link env}) is
- * handed to the agent harness, so the agent and the gate operate on the same
- * worktree — but each `exec` is a fresh subprocess (pi spawns per call), so the
+ * runs never touch each other's files. The same exec env ({@link env}) is
+ * handed to the agent's tools, so the agent and the gate operate on the same
+ * worktree — but each `exec` is a fresh subprocess, so the
  * agent cannot leave shell state behind for the gate. The gate's clean
  * environment is its own per-command `env` overrides over a stable `process.env`.
  */
@@ -78,8 +76,8 @@ export class WorktreeWorkspace implements Workspace {
 	readonly cwd: string;
 	/** The branch this worktree was created on. Surfaced to RunRecord via the Workspace seam. */
 	readonly branch: string;
-	/** The pi ExecutionEnv on the worktree. Handed to the agent harness (PiAgent, A3). */
-	readonly env: NodeExecutionEnv;
+	/** The exec env on the worktree. Handed to the agent's tools (PiAgent). */
+	readonly env: NodeExecEnv;
 	private readonly repoRoot: string;
 	private readonly defaultEnv?: Record<string, string>;
 	private readonly defaultTimeoutMs?: number;
@@ -91,7 +89,7 @@ export class WorktreeWorkspace implements Workspace {
 	private constructor(args: {
 		cwd: string;
 		branch: string;
-		env: NodeExecutionEnv;
+		env: NodeExecEnv;
 		repoRoot: string;
 		defaultEnv?: Record<string, string>;
 		defaultTimeoutMs?: number;
@@ -112,21 +110,16 @@ export class WorktreeWorkspace implements Workspace {
 		const worktreePath = opts.worktreePath ? resolve(opts.worktreePath) : defaultWorktreePath(repoRoot, opts.branch);
 		const baseRef = opts.baseRef ?? "HEAD";
 
-		const provision = new NodeExecutionEnv({ cwd: repoRoot, shellPath: opts.shellPath });
-		const context = contextFor();
-		try {
-			await provision.createDir(dirname(worktreePath), { recursive: true }, context);
-			const add = `git worktree add -b ${shellQuote(opts.branch)} ${shellQuote(worktreePath)} ${shellQuote(baseRef)}`;
-			const res = await execCaptured(provision, add, { limits: OUTPUT_LIMITS }, context);
-			if (!res.ok) throw new Error(`anvil: could not run git worktree add: ${res.error.message}`);
-			if (res.value.exitCode !== 0) {
-				throw new Error(`anvil: git worktree add failed (exit ${res.value.exitCode}): ${res.value.output}`);
-			}
-		} finally {
-			await provision.cleanup(context);
+		const provision = new NodeExecEnv({ cwd: repoRoot, shellPath: opts.shellPath });
+		await mkdir(dirname(worktreePath), { recursive: true });
+		const add = `git worktree add -b ${shellQuote(opts.branch)} ${shellQuote(worktreePath)} ${shellQuote(baseRef)}`;
+		const res = await provision.exec(add, { limits: OUTPUT_LIMITS });
+		if (!res.ok) throw new Error(`anvil: could not run git worktree add: ${res.error.message}`);
+		if (res.value.exitCode !== 0) {
+			throw new Error(`anvil: git worktree add failed (exit ${res.value.exitCode}): ${res.value.output}`);
 		}
 
-		const env = new NodeExecutionEnv({ cwd: worktreePath, shellPath: opts.shellPath });
+		const env = new NodeExecEnv({ cwd: worktreePath, shellPath: opts.shellPath });
 		const ws = new WorktreeWorkspace({
 			cwd: worktreePath,
 			branch: opts.branch,
@@ -168,19 +161,15 @@ export class WorktreeWorkspace implements Workspace {
 
 	async exec(command: string, opts?: ExecOptions): Promise<ExecResult> {
 		const timeoutMs = opts?.timeoutMs ?? this.defaultTimeoutMs;
-		const res = await execCaptured(
-			this.env,
-			command,
-			{
-				env: { ...this.defaultEnv, ...opts?.env },
-				// pi's timeout is in whole seconds; floor sub-second timeouts to 1s.
-				...(timeoutMs === undefined ? {} : { timeout: Math.max(1, Math.ceil(timeoutMs / 1000)) }),
-				limits: OUTPUT_LIMITS,
-			},
-			contextFor(opts?.signal),
-		);
+		const res = await this.env.exec(command, {
+			env: { ...this.defaultEnv, ...opts?.env },
+			// The exec timeout is in whole seconds; round sub-second timeouts up to 1s.
+			...(timeoutMs === undefined ? {} : { timeout: Math.max(1, Math.ceil(timeoutMs / 1000)) }),
+			...(opts?.signal === undefined ? {} : { signal: opts.signal }),
+			limits: OUTPUT_LIMITS,
+		});
 		if (res.ok) {
-			// pi 0.85 merges the child's stdout and stderr into one ordered view, so
+			// The exec env merges the child's stdout and stderr into one ordered view, so
 			// the combined text lands in `stdout` and `stderr` stays empty. Every
 			// anvil consumer reads them as `stderr || stdout`, so the text a failing
 			// command reports is unchanged.
@@ -191,13 +180,12 @@ export class WorktreeWorkspace implements Workspace {
 	}
 
 	async readText(path: string): Promise<string | null> {
-		const res = await this.env.readTextFile(path, contextFor());
+		const res = await this.env.readTextFile(path);
 		return res.ok ? res.value : null;
 	}
 
 	async exists(path: string): Promise<boolean> {
-		const res = await this.env.exists(path, contextFor());
-		return res.ok ? res.value : false;
+		return this.env.exists(path);
 	}
 
 	async commit(message: string): Promise<boolean> {
@@ -266,14 +254,8 @@ export class WorktreeWorkspace implements Workspace {
 	async cleanup(): Promise<void> {
 		if (this.removed) return;
 		this.removed = true;
-		const context = contextFor();
-		await this.env.cleanup(context);
-		const env = new NodeExecutionEnv({ cwd: this.repoRoot, shellPath: this.shellPath });
-		try {
-			await env.exec(`git worktree remove --force ${shellQuote(this.cwd)}`, undefined, context);
-		} finally {
-			await env.cleanup(context);
-		}
+		const env = new NodeExecEnv({ cwd: this.repoRoot, shellPath: this.shellPath });
+		await env.exec(`git worktree remove --force ${shellQuote(this.cwd)}`, { limits: OUTPUT_LIMITS });
 	}
 }
 

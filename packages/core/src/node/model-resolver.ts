@@ -1,4 +1,4 @@
-import type { Api, Model, Models, ThinkingLevelMap, VercelGatewayRouting } from "@earendil-works/pi-ai";
+import type { Model, ThinkingLevelMap, VercelGatewayRouting } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import { EFFORT_LADDER, type Effort, type SupportedEfforts } from "../index.ts";
@@ -48,61 +48,6 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 };
 
 /**
- * Bridge entries for gateway models missing from the pinned pi-ai catalog:
- * "provider:model-id" -> a sibling builtin to derive metadata from, plus the
- * fields that differ. The pinned catalog always wins, so an entry goes inert
- * (and should be deleted) at the pi-ai bump that ships the model.
- *
- * claude-haiku-5.5 ships in pi-ai 1.1.0, but pi 1.0 removed the harness layer
- * PiAgent is built on (AgentHarness, session repos, NodeExecutionEnv), so the
- * bump is a port, not a version change. Derived from opus-5.5, whose 0.99.1
- * gateway entry matches pi-ai 1.1.0's haiku-5.5 entry on every field but id,
- * name, and cost: adaptive thinking, no temperature, xhigh/max levels, 1M
- * context, 128K output, image limits.
- */
-const DERIVED_MODELS: Record<string, { from: [provider: string, id: string]; patch: Partial<Model<any>> }> = {
-	"vercel-ai-gateway:anthropic/claude-haiku-5.5": {
-		from: ["vercel-ai-gateway", "anthropic/claude-opus-5.5"],
-		patch: {
-			id: "anthropic/claude-haiku-5.5",
-			name: "Claude Haiku 5.5",
-			cost: {
-				input: 0.1,
-				output: 0.5,
-				cacheRead: 0.01,
-				cacheWrite: 0.125,
-				tiers: [{ inputTokensAbove: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
-			},
-		},
-	},
-};
-
-/** A builtin catalog model, else its {@link DERIVED_MODELS} bridge. */
-function lookupCatalog(provider: string, id: string): Model<any> | undefined {
-	const builtin = lookupModel(provider, id);
-	if (builtin) return builtin;
-	const entry = DERIVED_MODELS[`${provider}:${id}`];
-	if (!entry) return undefined;
-	const base = lookupModel(...entry.from);
-	return base ? { ...base, ...entry.patch } : undefined;
-}
-
-/** Bridged models for `provider` that the given catalog listing lacks. */
-function derivedModels(provider: string | undefined, present: readonly Model<any>[]): Model<any>[] {
-	const out: Model<any>[] = [];
-	for (const key of Object.keys(DERIVED_MODELS)) {
-		const sep = key.indexOf(":");
-		const p = key.slice(0, sep);
-		const id = key.slice(sep + 1);
-		if (provider !== undefined && p !== provider) continue;
-		if (present.some((m) => m.provider === p && m.id === id)) continue;
-		const model = lookupCatalog(p, id);
-		if (model) out.push(model);
-	}
-	return out;
-}
-
-/**
  * Build a {@link ModelResolver}: map anvil's logical model strings (including the
  * aliases the escalation ladder emits) to concrete pi-ai Models.
  *
@@ -138,12 +83,12 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 		const sep = spec.indexOf(":");
 		const provider = spec.slice(0, sep);
 		const id = spec.slice(sep + 1);
-		const model = lookupCatalog(provider, id);
+		const model = lookupModel(provider, id);
 		if (model) return withGatewayCompat(model);
 		throw new Error(`anvil: unknown model "${spec}". ${hint(name)}`);
 	}
 
-	const direct = lookupCatalog(defaultProvider, spec);
+	const direct = lookupModel(defaultProvider, spec);
 	if (direct) return withGatewayCompat(direct);
 	const found = findById(spec);
 	if (found) return withGatewayCompat(found);
@@ -225,7 +170,10 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * so they get the pin and nothing else. `supportsMidConvoEffort` stays
  * Claude-only.
  *
- * The routing pin is enforced by PiAgent's `before_payload` hook via
+ * The overlay rides on the Model object itself: a pi 1.x session sends
+ * requests with the exact Model it was given (at creation or `setModel`), so
+ * PiAgent hands it the resolver's clone. The routing pin is enforced by
+ * PiAgent's inline `before_provider_request` extension via
  * {@link applyGatewayRouting}, because pi-ai's anthropic-messages adapter does
  * not send `vercelGatewayRouting` (only openai-completions does; see
  * earendil-works/pi#9211). The compat field is the declaration; the hook is
@@ -267,7 +215,7 @@ export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TMo
 }
 
 /**
- * The `before_payload` hook body: write `compat.vercelGatewayRouting` into the
+ * The `before_provider_request` hook body: write `compat.vercelGatewayRouting` into the
  * request as `providerOptions.gateway.{only,order}`, which the gateway's
  * `/v1/messages` honors (the Anthropic SDK forwards the extra body key). pi's
  * anthropic-messages adapter never sends it itself (earendil-works/pi#9211).
@@ -293,40 +241,6 @@ export function applyGatewayRouting(model: Model<any>, payload: unknown): unknow
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * The same overlay, applied wherever **pi** resolves a model. The harness keeps
- * only a `{ provider, modelId }` identity and re-resolves every request (and
- * every `setModel`) through this collection, so a resolver-only overlay would
- * never reach the provider: this view is what actually carries
- * {@link withGatewayCompat} into the request.
- */
-export function withGatewayCompatModels(models: Models): Models {
-	return new Proxy(models, {
-		get(target, property) {
-			if (property === "getModel") {
-				return (provider: string, id: string): Model<Api> | undefined => {
-					// Bridged models are only in anvil's view: the harness resolves by
-					// identity here, so a resolver-only bridge would 404 at dispatch.
-					const model =
-						target.getModel(provider, id) ??
-						(DERIVED_MODELS[`${provider}:${id}`] ? lookupCatalog(provider, id) : undefined);
-					return model === undefined ? undefined : withGatewayCompat(model);
-				};
-			}
-			if (property === "getModels") {
-				return (provider?: string): readonly Model<Api>[] => {
-					const listed = target.getModels(provider);
-					return [...listed, ...derivedModels(provider, listed)].map(withGatewayCompat);
-				};
-			}
-			// Bind to the target, never the proxy: these collections hold private
-			// state that a rebound `this` cannot reach.
-			const value = Reflect.get(target, property, target);
-			return typeof value === "function" ? value.bind(target) : value;
-		},
-	});
 }
 
 function findById(id: string): Model<any> | undefined {

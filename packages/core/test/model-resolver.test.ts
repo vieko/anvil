@@ -8,7 +8,7 @@ import {
 	createModelResolver,
 	createSupportedEfforts,
 	DEFAULT_MODEL_ALIASES,
-	withGatewayCompatModels,
+	withGatewayCompat,
 } from "../src/node/model-resolver.ts";
 
 describe("createModelResolver", () => {
@@ -120,8 +120,21 @@ describe("createModelResolver", () => {
 			expect(registry.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
 		}
 		// sol matches sonnet's rung price on the gateway (6.1 halves the cache-read rate).
-		expect(resolve({ model: "sol" }).cost).toEqual({ input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 });
-		expect(resolve({ model: "luna" }).cost).toEqual({ input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 });
+		// pi-ai 1.1.0 adds the gateway's long-context tier (2x input above 272K).
+		expect(resolve({ model: "sol" }).cost).toEqual({
+			input: 2,
+			output: 10,
+			cacheRead: 0.1,
+			cacheWrite: 2.5,
+			tiers: [{ inputTokensAbove: 272_000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 }],
+		});
+		expect(resolve({ model: "luna" }).cost).toEqual({
+			input: 0.1,
+			output: 0.5,
+			cacheRead: 0.01,
+			cacheWrite: 0.125,
+			tiers: [{ inputTokensAbove: 272_000, input: 0.2, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }],
+		});
 	});
 
 	it("resolves astra to GPT-6 Astra on the gateway with the routing pin, adaptive thinking, and the full effort map", () => {
@@ -149,7 +162,13 @@ describe("createModelResolver", () => {
 		expect(getSupportedThinkingLevels(astra)).toEqual(["low", "medium", "high", "xhigh", "max"]);
 		// Pin the gateway terms the ladder prices against: 5x opus-5.5 on
 		// cache-read (why it is not the strong tier).
-		expect(astra.cost).toEqual({ input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 });
+		expect(astra.cost).toEqual({
+			input: 10,
+			output: 50,
+			cacheRead: 1,
+			cacheWrite: 12.5,
+			tiers: [{ inputTokensAbove: 272_000, input: 20, output: 75, cacheRead: 2, cacheWrite: 25 }],
+		});
 		expect(astra.contextWindow).toBeGreaterThanOrEqual(1_000_000);
 	});
 
@@ -187,24 +206,15 @@ describe("createModelResolver", () => {
 		expect(createModelResolver({ aliases: { concrete } })({ model: "concrete" })).toBe(concrete);
 	});
 
-	it("bridges claude-haiku-5.5 from opus-5.5 with haiku's own terms while pi-ai lacks it", () => {
+	it("resolves haiku to pi-ai's native gateway claude-haiku-5.5, with the Claude overlay", () => {
 		const resolve = createModelResolver();
 		const haiku = resolve({ model: "haiku" });
-		const opus = resolve({ model: "opus" });
+		const native = getBuiltinModel("vercel-ai-gateway", "anthropic/claude-haiku-5.5");
 		expect(haiku.provider).toBe("vercel-ai-gateway");
 		expect(haiku.name).toBe("Claude Haiku 5.5");
-		// Gateway terms (pi-ai 1.1.0 catalog): $0.10/$0.50, 5x above 100K input.
-		expect(haiku.cost).toEqual({
-			input: 0.1,
-			output: 0.5,
-			cacheRead: 0.01,
-			cacheWrite: 0.125,
-			tiers: [{ inputTokensAbove: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
-		});
-		// Everything else is opus-5.5's entry, which matches pi-ai 1.1.0's haiku-5.5.
-		expect(haiku.contextWindow).toBe(1_000_000);
-		expect(haiku.maxTokens).toBe(opus.maxTokens);
-		expect(haiku.thinkingLevelMap).toEqual({ xhigh: "xhigh", max: "max" });
+		// Gateway terms straight from the catalog: $0.10/$0.50, 5x above 100K input.
+		expect(haiku.cost).toEqual(native.cost);
+		expect(haiku.cost.input).toBe(0.1);
 		expect(haiku.compat).toMatchObject({
 			vercelGatewayRouting: { only: ["anthropic"] },
 			supportsStrictTools: true,
@@ -214,8 +224,9 @@ describe("createModelResolver", () => {
 		// Not in the mid-convo sets: no effort/system/tool-change flags.
 		expect(haiku.compat).not.toHaveProperty("supportsMidConvoEffort");
 		expect(haiku.compat).not.toHaveProperty("supportsMidConvoSystemMessages");
-		// The bridge never mutates the opus registry entry it derives from.
-		expect(getBuiltinModel("vercel-ai-gateway", "anthropic/claude-opus-5.5").id).toBe("anthropic/claude-opus-5.5");
+		// The overlay is a clone: the shared registry entry is never mutated.
+		expect(haiku).not.toBe(native);
+		expect(native.compat).not.toHaveProperty("vercelGatewayRouting");
 		expect(resolve({ model: "vercel-ai-gateway:anthropic/claude-haiku-5.5" })).toEqual(haiku);
 	});
 
@@ -284,11 +295,16 @@ describe("createModelResolver", () => {
 	});
 });
 
-describe("withGatewayCompatModels", () => {
-	// pi's harness keeps only a { provider, modelId } identity and re-resolves
-	// every request (and every mid-run setModel) through the Models collection, so
-	// the overlay has to be visible here too or it never reaches the provider.
-	const models = withGatewayCompatModels(builtinModels());
+describe("withGatewayCompat", () => {
+	// The overlay over pi-ai's builtin catalog, applied entry by entry (what the
+	// resolver hands a pi session, which then sends that exact object).
+	const catalog = builtinModels();
+	const models = {
+		getModel: (provider: string, id: string) => {
+			const model = catalog.getModel(provider, id);
+			return model === undefined ? undefined : withGatewayCompat(model);
+		},
+	};
 
 	it("overlays gateway Claude models resolved by identity", () => {
 		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-opus-5.5", "anthropic/claude-fable-5.1"]) {
@@ -345,9 +361,6 @@ describe("withGatewayCompatModels", () => {
 			max: "max",
 		});
 		expect(astra).not.toBe(builtinModels().getModel("vercel-ai-gateway", "openai/gpt-6-astra"));
-		expect(models.getModels("vercel-ai-gateway").find((m) => m.id === "openai/gpt-6-astra")?.compat).toMatchObject({
-			forceAdaptiveThinking: true,
-		});
 	});
 
 	it("pins other openai/* models resolved by identity to OpenAI's route, without a thinking overlay", () => {
@@ -360,7 +373,7 @@ describe("withGatewayCompatModels", () => {
 		}
 	});
 
-	it("leaves other providers, unknown ids, and the rest of the collection alone", () => {
+	it("leaves other providers and unpinned gateway models alone", () => {
 		expect(models.getModel("vercel-ai-gateway", "zai/glm-5.3")?.compat).toEqual(
 			builtinModels().getModel("vercel-ai-gateway", "zai/glm-5.3")?.compat,
 		);
@@ -370,33 +383,13 @@ describe("withGatewayCompatModels", () => {
 		expect(models.getModel("anthropic", "claude-opus-4-5")?.compat).toEqual(
 			builtinModels().getModel("anthropic", "claude-opus-4-5")?.compat,
 		);
-		expect(models.getModel("vercel-ai-gateway", "nope-9000")).toBeUndefined();
-		// Delegation stays intact for everything the harness also uses.
-		expect(models.getProviders().length).toBe(builtinModels().getProviders().length);
-		// Plus the one bridged model (claude-haiku-5.5) the pinned catalog lacks.
-		expect(models.getModels("vercel-ai-gateway").length).toBe(
-			builtinModels().getModels("vercel-ai-gateway").length + 1,
-		);
-		expect(models.getModels().length).toBe(builtinModels().getModels().length + 1);
-		expect(models.getModels("anthropic").length).toBe(builtinModels().getModels("anthropic").length);
-	});
-
-	it("serves the bridged claude-haiku-5.5 by identity, with the Claude overlay", () => {
-		// The harness re-resolves by { provider, modelId }: without this, a haiku
-		// golem would resolve in anvil and then fail at dispatch.
-		expect(builtinModels().getModel("vercel-ai-gateway", "anthropic/claude-haiku-5.5")).toBeUndefined();
-		const haiku = models.getModel("vercel-ai-gateway", "anthropic/claude-haiku-5.5");
-		expect(haiku?.id).toBe("anthropic/claude-haiku-5.5");
-		expect(haiku?.cost.input).toBe(0.1);
-		expect(haiku?.compat).toMatchObject({ vercelGatewayRouting: { only: ["anthropic"] }, supportsStrictTools: true });
-		expect(models.getModels("vercel-ai-gateway").filter((m) => m.id === "anthropic/claude-haiku-5.5")).toHaveLength(1);
-		// The bridge is keyed by provider: no haiku-5.5 under other providers.
-		expect(models.getModel("anthropic", "anthropic/claude-haiku-5.5")).toBeUndefined();
+		const native = builtinModels().getModel("anthropic", "claude-opus-4-5");
+		if (native) expect(withGatewayCompat(native)).toBe(native);
 	});
 });
 
 describe("applyGatewayRouting", () => {
-	// The `before_payload` hook body: pi's anthropic-messages adapter ignores
+	// The `before_provider_request` hook body: pi's anthropic-messages adapter ignores
 	// `compat.vercelGatewayRouting` (pi#9211), so this writes the body-level
 	// `providerOptions.gateway` the gateway's /v1/messages actually honors.
 	const resolve = createModelResolver();
