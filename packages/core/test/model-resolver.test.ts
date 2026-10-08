@@ -18,7 +18,7 @@ describe("createModelResolver", () => {
 		expect(opus.provider).toBe("vercel-ai-gateway");
 		expect(opus.id).toBe("anthropic/claude-opus-5.5");
 		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
-		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-4.5");
+		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-5.5");
 		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-6-luna");
 		expect(resolve({ model: "sol" }).id).toBe("openai/gpt-6.1-sol");
 		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-5.6-terra");
@@ -69,7 +69,7 @@ describe("createModelResolver", () => {
 			supportsStrictTools: true,
 			supportsMidConvoEffort: true,
 			supportsMidConvoSystemMessages: true,
-			supportsMidConvoToolChanges: true,
+			supportsMidConvoToolChanges: false,
 			// The registry's own compat survives the shallow merge.
 			forceAdaptiveThinking: true,
 			supportsTemperature: false,
@@ -187,6 +187,38 @@ describe("createModelResolver", () => {
 		expect(createModelResolver({ aliases: { concrete } })({ model: "concrete" })).toBe(concrete);
 	});
 
+	it("bridges claude-haiku-5.5 from opus-5.5 with haiku's own terms while pi-ai lacks it", () => {
+		const resolve = createModelResolver();
+		const haiku = resolve({ model: "haiku" });
+		const opus = resolve({ model: "opus" });
+		expect(haiku.provider).toBe("vercel-ai-gateway");
+		expect(haiku.name).toBe("Claude Haiku 5.5");
+		// Gateway terms (pi-ai 1.1.0 catalog): $0.10/$0.50, 5x above 100K input.
+		expect(haiku.cost).toEqual({
+			input: 0.1,
+			output: 0.5,
+			cacheRead: 0.01,
+			cacheWrite: 0.125,
+			tiers: [{ inputTokensAbove: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
+		});
+		// Everything else is opus-5.5's entry, which matches pi-ai 1.1.0's haiku-5.5.
+		expect(haiku.contextWindow).toBe(1_000_000);
+		expect(haiku.maxTokens).toBe(opus.maxTokens);
+		expect(haiku.thinkingLevelMap).toEqual({ xhigh: "xhigh", max: "max" });
+		expect(haiku.compat).toMatchObject({
+			vercelGatewayRouting: { only: ["anthropic"] },
+			supportsStrictTools: true,
+			forceAdaptiveThinking: true,
+			supportsTemperature: false,
+		});
+		// Not in the mid-convo sets: no effort/system/tool-change flags.
+		expect(haiku.compat).not.toHaveProperty("supportsMidConvoEffort");
+		expect(haiku.compat).not.toHaveProperty("supportsMidConvoSystemMessages");
+		// The bridge never mutates the opus registry entry it derives from.
+		expect(getBuiltinModel("vercel-ai-gateway", "anthropic/claude-opus-5.5").id).toBe("anthropic/claude-opus-5.5");
+		expect(resolve({ model: "vercel-ai-gateway:anthropic/claude-haiku-5.5" })).toEqual(haiku);
+	});
+
 	it("resolves the sonnet alias to anthropic/claude-sonnet-5", () => {
 		expect(createModelResolver()({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 	});
@@ -283,10 +315,11 @@ describe("withGatewayCompatModels", () => {
 		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-opus-5.5", "anthropic/claude-fable-5.1"]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
 				supportsMidConvoSystemMessages: true,
-				supportsMidConvoToolChanges: true,
+				// Forced off: the gateway 400s on tool_addition blocks.
+				supportsMidConvoToolChanges: false,
 			});
 		}
-		for (const id of ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4.5"]) {
+		for (const id of ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4.5", "anthropic/claude-haiku-5.5"]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).not.toHaveProperty("supportsMidConvoSystemMessages");
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).not.toHaveProperty("supportsMidConvoToolChanges");
 		}
@@ -340,7 +373,25 @@ describe("withGatewayCompatModels", () => {
 		expect(models.getModel("vercel-ai-gateway", "nope-9000")).toBeUndefined();
 		// Delegation stays intact for everything the harness also uses.
 		expect(models.getProviders().length).toBe(builtinModels().getProviders().length);
-		expect(models.getModels("vercel-ai-gateway").length).toBe(builtinModels().getModels("vercel-ai-gateway").length);
+		// Plus the one bridged model (claude-haiku-5.5) the pinned catalog lacks.
+		expect(models.getModels("vercel-ai-gateway").length).toBe(
+			builtinModels().getModels("vercel-ai-gateway").length + 1,
+		);
+		expect(models.getModels().length).toBe(builtinModels().getModels().length + 1);
+		expect(models.getModels("anthropic").length).toBe(builtinModels().getModels("anthropic").length);
+	});
+
+	it("serves the bridged claude-haiku-5.5 by identity, with the Claude overlay", () => {
+		// The harness re-resolves by { provider, modelId }: without this, a haiku
+		// golem would resolve in anvil and then fail at dispatch.
+		expect(builtinModels().getModel("vercel-ai-gateway", "anthropic/claude-haiku-5.5")).toBeUndefined();
+		const haiku = models.getModel("vercel-ai-gateway", "anthropic/claude-haiku-5.5");
+		expect(haiku?.id).toBe("anthropic/claude-haiku-5.5");
+		expect(haiku?.cost.input).toBe(0.1);
+		expect(haiku?.compat).toMatchObject({ vercelGatewayRouting: { only: ["anthropic"] }, supportsStrictTools: true });
+		expect(models.getModels("vercel-ai-gateway").filter((m) => m.id === "anthropic/claude-haiku-5.5")).toHaveLength(1);
+		// The bridge is keyed by provider: no haiku-5.5 under other providers.
+		expect(models.getModel("anthropic", "anthropic/claude-haiku-5.5")).toBeUndefined();
 	});
 });
 
@@ -409,8 +460,12 @@ describe("createSupportedEfforts", () => {
 	// catalog facts the escalation ladder clamps against.
 	const supported = createSupportedEfforts();
 
-	it("reports haiku verifies nothing above high", () => {
-		expect(supported("haiku")).toEqual(["low", "medium", "high"]);
+	it("reports haiku (5.5) verifies the full ladder (xhigh + max)", () => {
+		expect(supported("haiku")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+	});
+
+	it("reports haiku-4.5 verifies nothing above high", () => {
+		expect(supported("vercel-ai-gateway:anthropic/claude-haiku-4.5")).toEqual(["low", "medium", "high"]);
 	});
 
 	it("reports sonnet and opus verify the full ladder (xhigh + max)", () => {
@@ -441,10 +496,23 @@ describe("createSupportedEfforts", () => {
 		expect(buildEscalationLadder(base, { supportedEfforts: supported })).toEqual(buildEscalationLadder(base));
 	});
 
-	it("clamps an explicit max on haiku down to its verified ceiling in the ladder", () => {
-		expect(buildEscalationLadder({ model: "haiku", effort: "max" }, { supportedEfforts: supported })).toEqual([
-			{ model: "haiku", effort: "high" },
+	it("clamps an explicit max on haiku-4.5 down to its verified ceiling in the ladder", () => {
+		const h45 = "vercel-ai-gateway:anthropic/claude-haiku-4.5";
+		expect(buildEscalationLadder({ model: h45, effort: "max" }, { supportedEfforts: supported })).toEqual([
+			{ model: h45, effort: "high" },
 			{ model: "opus", effort: "max" },
+		]);
+	});
+
+	it("gives a haiku (5.5) golem the same ladder shape as luna: base, xhigh retry, strong tier", () => {
+		const ladder = (model: string) =>
+			buildEscalationLadder({ model, effort: "high" }, { supportedEfforts: supported }).map((r) =>
+				r.model === model ? { ...r, model: "base" } : r,
+			);
+		expect(ladder("haiku")).toEqual(ladder("luna"));
+		expect(ladder("haiku").slice(0, 2)).toEqual([
+			{ model: "base", effort: "high" },
+			{ model: "base", effort: "xhigh" },
 		]);
 	});
 });
