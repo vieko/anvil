@@ -31,7 +31,7 @@ export interface ModelResolverOptions {
  * direct provider access).
  */
 export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
-	haiku: "vercel-ai-gateway:anthropic/claude-haiku-4.5",
+	haiku: "vercel-ai-gateway:anthropic/claude-haiku-5.5",
 	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-5",
 	opus: "vercel-ai-gateway:anthropic/claude-opus-5.5",
 	fable: "vercel-ai-gateway:anthropic/claude-fable-5.1",
@@ -46,6 +46,61 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	// strong rung's spend.
 	astra: "vercel-ai-gateway:openai/gpt-6-astra",
 };
+
+/**
+ * Bridge entries for gateway models missing from the pinned pi-ai catalog:
+ * "provider:model-id" -> a sibling builtin to derive metadata from, plus the
+ * fields that differ. The pinned catalog always wins, so an entry goes inert
+ * (and should be deleted) at the pi-ai bump that ships the model.
+ *
+ * claude-haiku-5.5 ships in pi-ai 1.1.0, but pi 1.0 removed the harness layer
+ * PiAgent is built on (AgentHarness, session repos, NodeExecutionEnv), so the
+ * bump is a port, not a version change. Derived from opus-5.5, whose 0.99.1
+ * gateway entry matches pi-ai 1.1.0's haiku-5.5 entry on every field but id,
+ * name, and cost: adaptive thinking, no temperature, xhigh/max levels, 1M
+ * context, 128K output, image limits.
+ */
+const DERIVED_MODELS: Record<string, { from: [provider: string, id: string]; patch: Partial<Model<any>> }> = {
+	"vercel-ai-gateway:anthropic/claude-haiku-5.5": {
+		from: ["vercel-ai-gateway", "anthropic/claude-opus-5.5"],
+		patch: {
+			id: "anthropic/claude-haiku-5.5",
+			name: "Claude Haiku 5.5",
+			cost: {
+				input: 0.1,
+				output: 0.5,
+				cacheRead: 0.01,
+				cacheWrite: 0.125,
+				tiers: [{ inputTokensAbove: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
+			},
+		},
+	},
+};
+
+/** A builtin catalog model, else its {@link DERIVED_MODELS} bridge. */
+function lookupCatalog(provider: string, id: string): Model<any> | undefined {
+	const builtin = lookupModel(provider, id);
+	if (builtin) return builtin;
+	const entry = DERIVED_MODELS[`${provider}:${id}`];
+	if (!entry) return undefined;
+	const base = lookupModel(...entry.from);
+	return base ? { ...base, ...entry.patch } : undefined;
+}
+
+/** Bridged models for `provider` that the given catalog listing lacks. */
+function derivedModels(provider: string | undefined, present: readonly Model<any>[]): Model<any>[] {
+	const out: Model<any>[] = [];
+	for (const key of Object.keys(DERIVED_MODELS)) {
+		const sep = key.indexOf(":");
+		const p = key.slice(0, sep);
+		const id = key.slice(sep + 1);
+		if (provider !== undefined && p !== provider) continue;
+		if (present.some((m) => m.provider === p && m.id === id)) continue;
+		const model = lookupCatalog(p, id);
+		if (model) out.push(model);
+	}
+	return out;
+}
 
 /**
  * Build a {@link ModelResolver}: map anvil's logical model strings (including the
@@ -83,12 +138,12 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 		const sep = spec.indexOf(":");
 		const provider = spec.slice(0, sep);
 		const id = spec.slice(sep + 1);
-		const model = lookupModel(provider, id);
+		const model = lookupCatalog(provider, id);
 		if (model) return withGatewayCompat(model);
 		throw new Error(`anvil: unknown model "${spec}". ${hint(name)}`);
 	}
 
-	const direct = lookupModel(defaultProvider, spec);
+	const direct = lookupCatalog(defaultProvider, spec);
 	if (direct) return withGatewayCompat(direct);
 	const found = findById(spec);
 	if (found) return withGatewayCompat(found);
@@ -150,10 +205,15 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * real Messages API): `supportsStrictTools` on every Claude model, without
  * which anvil's `strict: "prefer"` tools never go out strict and sonnet-class
  * models hand back malformed edit arguments (earendil-works/pi#9212); and
- * `supportsMidConvoSystemMessages` + `supportsMidConvoToolChanges` on the
- * models that have them natively, so a prompt-section or tool-set change
- * between turns is a small system patch instead of a full-prefix rewrite
- * (measured on fable-5.1 via the gateway: cacheWrite 14337 -> 50).
+ * `supportsMidConvoSystemMessages` on the models that have it natively, so a
+ * prompt-section change between turns is a small system patch instead of a
+ * full-prefix rewrite (measured on fable-5.1 via the gateway: cacheWrite
+ * 14337 -> 50). `supportsMidConvoToolChanges` is the exception, forced off:
+ * the gateway's Anthropic passthrough rejects the `tool_addition` content
+ * blocks it emits (inline-tools-2026-09-15 beta) with a 400 "messages.N.content:
+ * Invalid input", and every later turn fails the same way (8 consecutive
+ * 400s in an interactive pi session, 2026-10-03). A tool-set change resends
+ * the full tool list at request level instead.
  *
  * Every `openai/*` model is fenced to OpenAI's route the same way (`only`, not
  * `order`), so sol / luna / terra / astra never silently move to another
@@ -183,7 +243,7 @@ export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TMo
 				supportsStrictTools: true,
 				...(MID_CONVO_EFFORT_MODELS.has(model.id) ? { supportsMidConvoEffort: true } : {}),
 				...(MID_CONVO_SYSTEM_MODELS.has(model.id)
-					? { supportsMidConvoSystemMessages: true, supportsMidConvoToolChanges: true }
+					? { supportsMidConvoSystemMessages: true, supportsMidConvoToolChanges: false }
 					: {}),
 			} as TModel["compat"],
 		};
@@ -247,12 +307,19 @@ export function withGatewayCompatModels(models: Models): Models {
 		get(target, property) {
 			if (property === "getModel") {
 				return (provider: string, id: string): Model<Api> | undefined => {
-					const model = target.getModel(provider, id);
+					// Bridged models are only in anvil's view: the harness resolves by
+					// identity here, so a resolver-only bridge would 404 at dispatch.
+					const model =
+						target.getModel(provider, id) ??
+						(DERIVED_MODELS[`${provider}:${id}`] ? lookupCatalog(provider, id) : undefined);
 					return model === undefined ? undefined : withGatewayCompat(model);
 				};
 			}
 			if (property === "getModels") {
-				return (provider?: string): readonly Model<Api>[] => target.getModels(provider).map(withGatewayCompat);
+				return (provider?: string): readonly Model<Api>[] => {
+					const listed = target.getModels(provider);
+					return [...listed, ...derivedModels(provider, listed)].map(withGatewayCompat);
+				};
 			}
 			// Bind to the target, never the proxy: these collections hold private
 			// state that a rebound `this` cannot reach.
