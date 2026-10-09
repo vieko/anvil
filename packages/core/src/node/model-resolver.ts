@@ -97,6 +97,7 @@ function resolveOne(name: string, aliases: Record<string, string | Model<any>>, 
 
 /** Models that verify per-turn effort changes through the gateway (see {@link withGatewayCompat}). */
 const MID_CONVO_EFFORT_MODELS = new Set([
+	"anthropic/claude-haiku-5.5",
 	"anthropic/claude-opus-5",
 	"anthropic/claude-opus-5.5",
 	"anthropic/claude-fable-5.1",
@@ -107,6 +108,7 @@ const MID_CONVO_EFFORT_MODELS = new Set([
  * system messages and tool additions/removals (see {@link withGatewayCompat}).
  */
 const MID_CONVO_SYSTEM_MODELS = new Set([
+	"anthropic/claude-haiku-5.5",
 	"anthropic/claude-fable-5",
 	"anthropic/claude-fable-5.1",
 	"anthropic/claude-opus-4.8",
@@ -137,8 +139,8 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * `anthropic`, `bedrock`, `claudeaws`, or `vertexAnthropic`, and a run that
  * silently moves backends pays a full-prefix cache rewrite at 1h write rates
  * and loses the beta-header guarantees below. An unattended golem is better
- * served by a loud provider error the retry policy can handle. Opus 5, Opus
- * 5.5 and Fable 5.1 additionally get `supportsMidConvoEffort`, which is what
+ * served by a loud provider error the retry policy can handle. Haiku 5.5,
+ * Opus 5, Opus 5.5 and Fable 5.1 additionally get `supportsMidConvoEffort`, which is what
  * makes the escalation ladder's effort climb safe on one resumed session (per-turn
  * effort persisted, effort-only system messages rebuilt on replay, stale
  * signed-thinking prefixes dropped instead of 400ing). pi-ai's catalog enables
