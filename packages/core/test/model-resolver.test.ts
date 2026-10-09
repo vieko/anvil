@@ -211,9 +211,14 @@ describe("createModelResolver", () => {
 			forceAdaptiveThinking: true,
 			supportsTemperature: false,
 		});
-		// Not in the mid-convo sets: no effort/system/tool-change flags.
-		expect(haiku.compat).not.toHaveProperty("supportsMidConvoEffort");
-		expect(haiku.compat).not.toHaveProperty("supportsMidConvoSystemMessages");
+		// In both mid-convo sets, like pi-ai 1.1.0's native anthropic claude-haiku-5-5:
+		// the effort climb stays cache-warm on one session. Tool changes stay forced
+		// off (the gateway 400s on tool_addition).
+		expect(haiku.compat).toMatchObject({
+			supportsMidConvoEffort: true,
+			supportsMidConvoSystemMessages: true,
+			supportsMidConvoToolChanges: false,
+		});
 		// The bridge never mutates the opus registry entry it derives from.
 		expect(getBuiltinModel("vercel-ai-gateway", "anthropic/claude-opus-5.5").id).toBe("anthropic/claude-opus-5.5");
 		expect(resolve({ model: "vercel-ai-gateway:anthropic/claude-haiku-5.5" })).toEqual(haiku);
@@ -312,14 +317,20 @@ describe("withGatewayCompatModels", () => {
 		]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({ supportsStrictTools: true });
 		}
-		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-opus-5.5", "anthropic/claude-fable-5.1"]) {
+		for (const id of [
+			"anthropic/claude-haiku-5.5",
+			"anthropic/claude-opus-5",
+			"anthropic/claude-opus-5.5",
+			"anthropic/claude-fable-5.1",
+		]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
+				supportsMidConvoEffort: true,
 				supportsMidConvoSystemMessages: true,
 				// Forced off: the gateway 400s on tool_addition blocks.
 				supportsMidConvoToolChanges: false,
 			});
 		}
-		for (const id of ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4.5", "anthropic/claude-haiku-5.5"]) {
+		for (const id of ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4.5"]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).not.toHaveProperty("supportsMidConvoSystemMessages");
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).not.toHaveProperty("supportsMidConvoToolChanges");
 		}
