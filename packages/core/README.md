@@ -6,7 +6,8 @@ The anvil engine: **define outcome → agent works → deterministic gate → lo
   escalation ladder, and the four seam interfaces (`Agent`, `Workspace`,
   `Gate`, `StatePersister`). No node builtins, no SDK, no git.
 - `@anvil/core/node` (`./node`) — node-bound implementations: `PiAgent`
-  (pi-agent-core), `WorktreeWorkspace` (a pi `ExecutionEnv` on a git worktree),
+  (a pi coding-agent SDK session), `WorktreeWorkspace` (anvil's exec env on a
+  git worktree),
   `CommandGate`.
 
 See [`../../docs/design.md`](../../docs/design.md) for the contract.

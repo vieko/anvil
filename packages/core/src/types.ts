@@ -26,8 +26,8 @@ export interface Outcome {
 }
 
 // ── Who: the agent seam ──────────────────────────────────────
-// Wraps a single complete agentic turn. Under "@anvil/core/node" this is
-// pi-agent-core's `AgentHarness.prompt()`.
+// Wraps a single complete agentic turn. Under "@anvil/core/node" this is a
+// pi coding-agent SDK session's `prompt()`.
 
 export interface TokenUsage {
 	input: number;
@@ -94,11 +94,11 @@ export type AgentActivity =
 export type AgentEventSink = (event: AgentActivity) => void;
 
 // ── Where: the workspace seam ────────────────────────────────
-// Isolation + command execution. Under "@anvil/core/node" this is a pi
-// ExecutionEnv (FileSystem & Shell) pointed at a git worktree.
+// Isolation + command execution. Under "@anvil/core/node" this is anvil's
+// node exec env (filesystem + shell) pointed at a git worktree.
 
 /**
- * Why a command could not be run to completion. Mirrors pi's ExecutionErrorCode.
+ * Why a command could not be run to completion (the codes pi's 0.x ExecutionEnv used).
  * The gate treats any of these as inconclusive (environment/flake), never as a
  * real, fixable failure.
  */

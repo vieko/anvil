@@ -84,8 +84,8 @@ or filesystem.
 
 | Seam | What | `@anvil/core/node` implementation |
 |------|------|-----------------------------------|
-| `Agent` | runs one complete agentic turn | `PiAgent` → pi-agent-core `AgentLane.prompt()` |
-| `Workspace` | isolation + command execution | `WorktreeWorkspace` → a pi `ExecutionEnv` on a git worktree |
+| `Agent` | runs one complete agentic turn | `PiAgent` → a hermetic pi coding-agent SDK session (`createAgentSession`, `prompt()`) |
+| `Workspace` | isolation + command execution | `WorktreeWorkspace` → anvil's `NodeExecEnv` on a git worktree |
 | `Gate` | the **sole** authority on "done" | `CommandGate` → detected build/test cmds via `Workspace.exec` |
 | `StatePersister` | one write per transition | in-memory default; SQLite under node |
 
@@ -126,18 +126,33 @@ Every edge writes a `RunRecord`. Resume = load last record, continue the loop.
 
 ## 5. Substrate: pi, not the Anthropic SDK
 
-`@anvil/core` depends on **`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`**
-(hard-pinned to `0.78.1` — the spiked version, and >2 days old so it clears the
-`.npmrc` `min-release-age` supply-chain gate), nothing heavier. The decision, on
-evidence from a spike:
+`@anvil/core/node` builds on the **pi coding-agent SDK**
+(`@earendil-works/pi-coding-agent`, with `pi-agent-core` and `pi-ai`), all
+hard-pinned to one exact version; the pure `.` export imports none of them.
+The original spike chose the two lean packages (`pi-agent-core` + `pi-ai`) and
+their harness layer: `AgentHarness.prompt()` was `Agent.dispatch()` and pi's
+`ExecutionEnv` was the `Workspace`. pi 1.0 removed that harness from
+`pi-agent-core` on purpose and kept it in the coding-agent SDK, so anvil moved
+there (#51) rather than rebuild sessions, retries and compaction outside the
+gate. What the substrate gives anvil now:
 
-- pi-agent-core's `ExecutionEnv` (`FileSystem & Shell`) **is** anvil's
-  `Workspace` — pluggable, structured `exec()` results, and it is the *only*
-  node-bound thing (the `.`/`./node` seam is already drawn there).
-- `AgentHarness.prompt() → Promise<AssistantMessage>` **is** anvil's
-  `Agent.dispatch()`.
-- pi's `tool_call → {block, reason}` hook is a PreToolUse-equivalent, richer
-  than the Anthropic SDK's.
+- `createAgentSession()` + `session.prompt()` **is** `Agent.dispatch()`: pi runs
+  the tool-use loop and its own transient-failure retries; a dispatch counts
+  only if the run settles un-aborted with a final assistant message that did not
+  error. Everything else is a failed dispatch, never a pass.
+- One live session per anvil session id; the escalation ladder climbs inside it
+  with `setModel` / `setThinkingLevel` (one cache-warm conversation). The tool
+  set never changes mid-session: per-attempt `ANVIL_*` values reach the bash
+  tool at call time.
+- **Hermetic** sessions: no discovery of host extensions, skills, prompt
+  templates, context files, `~/.pi` settings or credentials. Settings are in
+  memory (compaction off, cache warming off, install telemetry off); provider
+  keys come from the environment through an empty in-memory credential store.
+  Transcripts persist as JSONL under the user-level state dir (`SessionManager`).
+- anvil owns its `read`/`edit`/`write`/`bash` tools (SDK custom tools, pi's
+  built-ins off) and its exec env (`NodeExecEnv`: bounded combined output,
+  Result-typed failures); pi's exported local shell operations supply process-
+  tree kill, timeout and abort.
 - **provider-agnostic** (Anthropic / OpenAI / Google / Mistral / Bedrock / …)
   directly serves the cheap-base / strong-escalate thesis.
 
@@ -156,20 +171,21 @@ neutrality is preserved by the seam: `createModelResolver({ defaultProvider:
 "anthropic", aliases: {...} })` (or a custom `resolveModel`/`getApiKeyAndHeaders`)
 switches to direct provider access. Gateway models are fenced to one backend
 (`compat.vercelGatewayRouting: { only: [...] }`), and `PiAgent` enforces that
-fence through the harness's `before_payload` hook -- writing
+fence through an inline `before_provider_request` extension -- writing
 `providerOptions.gateway` into the request body -- because pi-ai's
 anthropic-messages adapter does not send `vercelGatewayRouting` itself
-(earendil-works/pi#9211). A run that silently moved backends would pay a
+(earendil-works/pi#9211). The compat overlay rides on the `Model` object the
+resolver returns; a pi session sends requests with exactly that object. A run that silently moved backends would pay a
 full-prefix cache rewrite and lose the beta headers the effort ladder relies on.
-- first-class faux provider + memory session repo = deterministic tests.
-- `Result<T,E>`-everywhere, never-throw, abort-everywhere design aligns with
-  "the most reliable engine" better than a throw-based SDK.
+- first-class faux provider + in-memory sessions = deterministic tests (the
+  real SDK session driven against pi-ai's faux provider, no network, no key).
 
-Costs accepted: anvil writes its own minimal `read`/`edit`/`bash` tools against
-`ExecutionEnv` (desirable — anvil controls/constrains them; keeps the dep
-surface to the two lean packages, not the heavier `pi-coding-agent`); cost is
-computed from `Usage` + a pricing table; and the upstream is pre-1.0 / single
-maintainer — mitigated by hard-pin + the MIT vendor escape hatch.
+Costs accepted: a heavier dependency than the original two packages (the full
+pi 1.1.0 install is 158 MB, against anvil's 236 MB `node_modules`); anvil
+writes its own minimal tools and exec env (desirable -- anvil controls and
+constrains them); cost is computed from `Usage` + a pricing table; and the
+upstream is single-maintainer -- mitigated by hard-pin + the MIT vendor escape
+hatch.
 
 ## 6. Tooling
 
@@ -311,8 +327,8 @@ Decisions are driven by usage data, not speculation. These are intentionally
   boxes, redraw-based), which Pi itself **turns off** in non-interactive (print)
   mode — exactly anvil's regime. Anvil's stream is append-only ASCII to stderr
   and is routinely piped / `tee`'d / `tmux capture-pane`'d (read by machines and
-  scrollback), where a redraw TUI corrupts output and the dependency violates
-  the `pi-agent-core` + `pi-ai`-only substrate rule. The glyph vocabulary (`>`
+  scrollback), where a redraw TUI corrupts output. (The SDK pulls `pi-tui` in
+  transitively; anvil never renders with it.) The glyph vocabulary (`>`
   running, `+` ok, `x` fail, `~` thinking) deliberately reads like a
   gate/test-runner, not a chat agent — the right identity signal. The one piece
   that earned itself is a small **TTY-gated ANSI layer** (`color.ts`): an

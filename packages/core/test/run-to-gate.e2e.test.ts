@@ -2,11 +2,13 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model, MutableModels } from "@earendil-works/pi-ai";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StatePersister } from "../src/index.ts";
 import { CommandGate, PiAgent, runToGate, WorktreeWorkspace } from "../src/node/index.ts";
+import { fauxModelRuntime } from "./support/faux-runtime.ts";
 
 // The capstone: the whole engine end-to-end with only the MODEL faked. A real
 // git worktree, the real read/write tools mutating it, the real gate verifying
@@ -17,7 +19,7 @@ let tmpRoot: string;
 let repoRoot: string;
 let faux: ReturnType<typeof fauxProvider>;
 let model: Model<string>;
-let models: MutableModels;
+let modelRuntime: ModelRuntime;
 
 const noopPersist: StatePersister = { async save() {} };
 
@@ -37,8 +39,7 @@ beforeEach(async () => {
 	git(["commit", "-m", "init"]);
 	faux = fauxProvider({ models: [{ id: "faux", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] });
 	model = faux.getModel();
-	models = createModels();
-	models.setProvider(faux.provider);
+	modelRuntime = await fauxModelRuntime(faux.provider);
 });
 
 afterEach(async () => {
@@ -51,7 +52,7 @@ async function setup(branch: string) {
 		env: ws.env,
 		resolveModel: () => model,
 		systemPrompt: "test",
-		models,
+		modelRuntime,
 	});
 	// The gate is satisfied only when answer.txt contains exactly "42".
 	const gate = new CommandGate({ commands: [{ cmd: 'test "$(cat answer.txt 2>/dev/null)" = "42"' }] });

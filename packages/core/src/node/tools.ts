@@ -1,20 +1,18 @@
-import type { AgentHarnessTool, ExecutionEnv } from "@earendil-works/pi-agent-core";
 import type { ConstrainedSamplingConfig, TextContent } from "@earendil-works/pi-ai";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type TSchema, Type } from "typebox";
-import { execCaptured } from "./pi-exec.ts";
+import type { ExecEnv } from "./exec-env.ts";
 
-// anvil's own read/edit/write/bash tools, bound to a pi ExecutionEnv. Lean and
-// headless — no TUI/highlight/image deps. The contract (parameter names, the
-// exact-unique-match edit, head/tail truncation) deliberately matches what
-// coding models are trained on (cribbed from pi-coding-agent's tools), so a
-// capable model uses them well; the implementations are ours.
-//
-// pi 0.85 tools are harness-native: `execute` receives the turn's Context as its
-// last argument (cancellation + telemetry) and every ExecutionEnv call takes it.
-// anvil needs no per-turn tool context, so TContext is `undefined`.
+// anvil's own read/edit/write/bash tools, bound to an anvil ExecEnv. Lean and
+// headless -- no TUI/highlight/image deps, no temp-file output spill. The
+// contract (parameter names, the exact-unique-match edit, head/tail truncation)
+// deliberately matches what coding models are trained on (cribbed from
+// pi-coding-agent's tools), so a capable model uses them well; the
+// implementations are ours. PiAgent registers them as SDK custom tools with
+// pi's built-ins off. Cancellation arrives as the `execute` AbortSignal.
 
-/** An anvil tool: a pi harness tool with no tool context of its own. */
-export type AnvilTool<TParameters extends TSchema = TSchema> = AgentHarnessTool<undefined, TParameters>;
+/** An anvil tool: a pi-coding-agent custom tool definition. */
+export type AnvilTool<TParameters extends TSchema = TSchema> = ToolDefinition<TParameters>;
 
 const MAX_LINES = 2000;
 const MAX_BYTES = 50 * 1024; // 50KB
@@ -42,7 +40,7 @@ const readSchema = Type.Object({
 	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
 });
 
-export function createReadTool(env: ExecutionEnv): AnvilTool<typeof readSchema> {
+export function createReadTool(env: ExecEnv): AnvilTool<typeof readSchema> {
 	return {
 		name: "read",
 		label: "Read",
@@ -52,8 +50,8 @@ export function createReadTool(env: ExecutionEnv): AnvilTool<typeof readSchema> 
 			"Use offset/limit to page through large files.",
 		parameters: readSchema,
 		constrainedSampling: PREFER_STRICT_JSON_SCHEMA,
-		async execute(_id, { path, offset, limit }, _onUpdate, _toolContext, _invocation, context) {
-			const content = unwrap(await env.readTextFile(path, context), `Could not read ${path}`);
+		async execute(_id, { path, offset, limit }, signal) {
+			const content = unwrap(await env.readTextFile(path, signal), `Could not read ${path}`);
 			const start = offset && offset > 0 ? offset - 1 : 0;
 			let lines = content.split("\n").slice(start);
 			const hasLimit = limit !== undefined && limit > 0;
@@ -90,7 +88,7 @@ const editSchema = Type.Object({
 	),
 });
 
-export function createEditTool(env: ExecutionEnv): AnvilTool<typeof editSchema> {
+export function createEditTool(env: ExecEnv): AnvilTool<typeof editSchema> {
 	return {
 		name: "edit",
 		label: "Edit",
@@ -100,8 +98,8 @@ export function createEditTool(env: ExecutionEnv): AnvilTool<typeof editSchema> 
 			"emitting overlapping edits. Each oldText is matched against the original file, not after earlier edits apply.",
 		parameters: editSchema,
 		constrainedSampling: PREFER_STRICT_JSON_SCHEMA,
-		async execute(_id, { path, edits }, _onUpdate, _toolContext, _invocation, context) {
-			const original = unwrap(await env.readTextFile(path, context), `Could not edit ${path}`);
+		async execute(_id, { path, edits }, signal) {
+			const original = unwrap(await env.readTextFile(path, signal), `Could not edit ${path}`);
 
 			const spans: { start: number; end: number; newText: string }[] = [];
 			edits.forEach(({ oldText, newText }, i) => {
@@ -125,7 +123,7 @@ export function createEditTool(env: ExecutionEnv): AnvilTool<typeof editSchema> 
 			for (let i = spans.length - 1; i >= 0; i--) {
 				out = out.slice(0, spans[i].start) + spans[i].newText + out.slice(spans[i].end);
 			}
-			unwrap(await env.writeFile(path, out, context), `Could not write ${path}`);
+			unwrap(await env.writeFile(path, out, signal), `Could not write ${path}`);
 			return { content: [text(`Successfully replaced ${edits.length} block(s) in ${path}.`)], details: {} };
 		},
 	};
@@ -138,15 +136,15 @@ const writeSchema = Type.Object({
 	content: Type.String({ description: "Full contents to write. Creates the file or overwrites it." }),
 });
 
-export function createWriteTool(env: ExecutionEnv): AnvilTool<typeof writeSchema> {
+export function createWriteTool(env: ExecEnv): AnvilTool<typeof writeSchema> {
 	return {
 		name: "write",
 		label: "Write",
 		description: "Create a new file or overwrite an existing one with the given contents.",
 		parameters: writeSchema,
 		constrainedSampling: PREFER_STRICT_JSON_SCHEMA,
-		async execute(_id, { path, content }, _onUpdate, _toolContext, _invocation, context) {
-			unwrap(await env.writeFile(path, content, context), `Could not write ${path}`);
+		async execute(_id, { path, content }, signal) {
+			unwrap(await env.writeFile(path, content, signal), `Could not write ${path}`);
 			return { content: [text(`Wrote ${Buffer.byteLength(content, "utf8")} bytes to ${path}.`)], details: {} };
 		},
 	};
@@ -159,7 +157,14 @@ const bashSchema = Type.Object({
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional; no default timeout)" })),
 });
 
-export function createBashTool(env: ExecutionEnv, extraEnv?: Record<string, string>): AnvilTool<typeof bashSchema> {
+/**
+ * Extra variables for every bash invocation: a fixed record, or a function read
+ * at call time. PiAgent passes a function so the per-attempt `ANVIL_*` values
+ * change without changing the session's tool set.
+ */
+export type BashEnv = Record<string, string> | (() => Record<string, string>);
+
+export function createBashTool(env: ExecEnv, extraEnv?: BashEnv): AnvilTool<typeof bashSchema> {
 	return {
 		name: "bash",
 		label: "Bash",
@@ -169,19 +174,16 @@ export function createBashTool(env: ExecutionEnv, extraEnv?: Record<string, stri
 			"A non-zero exit code is returned as output, not an error.",
 		parameters: bashSchema,
 		constrainedSampling: PREFER_STRICT_JSON_SCHEMA,
-		async execute(_id, { command, timeout }, _onUpdate, _toolContext, _invocation, context) {
-			// pi 0.85 bounds shell output at the source: the retained tail is exactly
+		async execute(_id, { command, timeout }, signal) {
+			// The exec env bounds output at the source: the retained tail is exactly
 			// anvil's documented cap, so no second truncation pass is needed here.
-			const result = await execCaptured(
-				env,
-				command,
-				{
-					...(timeout === undefined ? {} : { timeout }),
-					...(extraEnv === undefined ? {} : { env: extraEnv }),
-					limits: { maxBytes: MAX_BYTES, maxLines: MAX_LINES, retain: "tail" },
-				},
-				context,
-			);
+			const vars = typeof extraEnv === "function" ? extraEnv() : extraEnv;
+			const result = await env.exec(command, {
+				...(timeout === undefined ? {} : { timeout }),
+				...(vars === undefined ? {} : { env: vars }),
+				...(signal === undefined ? {} : { signal }),
+				limits: { maxBytes: MAX_BYTES, maxLines: MAX_LINES },
+			});
 			if (!result.ok) {
 				// Could not run to completion (timeout/spawn/abort) -- a real tool error.
 				throw new Error(`Command could not run (${result.error.code}): ${result.error.message}`);
@@ -201,6 +203,6 @@ export function createBashTool(env: ExecutionEnv, extraEnv?: Record<string, stri
  * `bashEnv` (e.g. `ANVIL_RUN_ID` / `ANVIL_ATTEMPT` / `ANVIL_MODEL` /
  * `ANVIL_EFFORT`) is layered into every bash tool invocation's environment.
  */
-export function defaultTools(env: ExecutionEnv, bashEnv?: Record<string, string>): AnvilTool[] {
+export function defaultTools(env: ExecEnv, bashEnv?: BashEnv): AnvilTool[] {
 	return [createReadTool(env), createEditTool(env), createWriteTool(env), createBashTool(env, bashEnv)];
 }

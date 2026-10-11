@@ -39,11 +39,26 @@ reimplementation of forge.
 
 ## Substrate
 
-`@anvil/core` depends only on `@earendil-works/pi-agent-core` +
-`@earendil-works/pi-ai` (hard-pinned, exact). Not `pi-coding-agent` (too heavy).
-Anvil writes its own `read`/`edit`/`bash` tools against pi's `ExecutionEnv`.
-pi is an upstream dependency — read it, pin it, vendor it if it breaks you; do
-**not** fork it into this tree.
+`@anvil/core` depends on `@earendil-works/pi-coding-agent`,
+`@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`, all hard-pinned to
+the same exact version. pi 1.0 removed the harness layer (sessions, retries,
+exec env) from `pi-agent-core` on purpose; it now lives in the coding-agent SDK
+(`createAgentSession`). Rebuilding it on the bare `Agent` loop would put
+sessions, retries and compaction in anvil, outside the gate, against "invert
+the mass". This supersedes the earlier "not `pi-coding-agent` (too heavy)"
+rule (#51); for scale, the full pi 1.1.0 install is 158 MB against anvil's
+236 MB `node_modules`.
+
+- The SDK is a `./node` dependency only. `src/index.ts` (the `.` export) stays
+  free of node builtins and SDK imports; `PiAgent` lives in `src/node/`.
+- `PiAgent` sessions are hermetic: no resource discovery from the host
+  (extensions, skills, prompt templates, context files, `~/.pi` settings,
+  credentials or MCP). Every session setting is explicit and in-memory; only
+  provider keys come from the environment.
+- Anvil keeps its own `read`/`edit`/`write`/`bash` tools, registered as custom
+  tools with pi's built-ins off, so anvil owns their contract and output caps.
+- pi is an upstream dependency: read it, pin it, vendor it if it breaks you; do
+  **not** fork it into this tree.
 
 ## Tooling & conventions
 
