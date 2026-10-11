@@ -297,6 +297,16 @@ Decisions are driven by usage data, not speculation. These are intentionally
   not crash-resume, is its purpose. Reopen if anvil grows expensive long-running
   single outcomes, or a detached/queued executor where losing in-flight work is
   costly.
+
+  Rechecked 2026-10-11, after the pi 1.1.0 port (#52). The port kept the gap:
+  `PiAgent` still looks a `resume` id up only in its in-memory runtime map, so
+  a new process starts a fresh session even though the JSONL transcript is on
+  disk. The fix, if reopened, is to reopen that file by session id and record
+  the worktree HEAD with each transition so a resume can detect drift. Evidence
+  still says no: of 236 run records in the local state dir, 213 passed, 23
+  failed, and 0 are non-terminal. Anvil installs no signal handlers, so a run
+  killed mid-dispatch would leave a `running` record; none has, including
+  detached golems.
 - **`--no-escalate` (and `--strong-model` / `--weak-tier`).** The escalation
   seam is proven (`escalate: (b) => b` pins it; `makeEscalator(policy)` retargets
   it), so a flag is ~5 lines *whenever needed*. Adding it now is surface "just in
