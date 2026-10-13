@@ -205,6 +205,12 @@ export class PiAgent implements Agent {
 			// never a slash command or template.
 			await session.prompt(d.prompt, { expandPromptTemplates: false, source: "rpc" });
 			const message = completedMessage(settled, finalMessage);
+			if (message.stopReason === "length") {
+				this.options.onActivity?.({
+					kind: "warning",
+					text: "Final assistant message was cut off at the model's output token limit.",
+				});
+			}
 			return { text: extractText(message), usage: totalUsage, sessionId };
 		} finally {
 			d.signal?.removeEventListener("abort", onAbort);

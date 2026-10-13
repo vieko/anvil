@@ -14,6 +14,8 @@ export interface Palette {
 	green(text: string): string;
 	/** A failing signal (`x`, the verdict on failure). */
 	red(text: string): string;
+	/** A non-fatal warning (`!`). */
+	yellow(text: string): string;
 	/** Emphasis (the run-header id). */
 	bold(text: string): string;
 }
@@ -23,6 +25,7 @@ export const plainPalette: Palette = {
 	dim: (text) => text,
 	green: (text) => text,
 	red: (text) => text,
+	yellow: (text) => text,
 	bold: (text) => text,
 };
 
@@ -34,6 +37,7 @@ export const ansiPalette: Palette = {
 	dim: (text) => wrap(2, 22, text),
 	green: (text) => wrap(32, 39, text),
 	red: (text) => wrap(31, 39, text),
+	yellow: (text) => wrap(33, 39, text),
 	bold: (text) => wrap(1, 22, text),
 };
 

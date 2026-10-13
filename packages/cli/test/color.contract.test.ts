@@ -12,6 +12,7 @@ import { renderActivity } from "../src/run.ts";
 const ESC = "\u001b[";
 const toolEnd = (ok: boolean): AgentActivity => ({ kind: "tool-end", tool: "edit", ok });
 const reasoning: AgentActivity = { kind: "reasoning", text: "thinking" };
+const warning: AgentActivity = { kind: "warning", text: "truncated" };
 const toolStart: AgentActivity = { kind: "tool-start", tool: "bash", summary: "ls" };
 
 describe("color (frozen contract)", () => {
@@ -20,6 +21,7 @@ describe("color (frozen contract)", () => {
 		expect(renderActivity(toolEnd(true), plainPalette)).toBe("  + edit");
 		expect(renderActivity(toolEnd(false), plainPalette)).toBe("  x edit");
 		expect(renderActivity(reasoning, plainPalette)).toBe("  ~ thinking");
+		expect(renderActivity(warning, plainPalette)).toBe("  ! truncated");
 		expect(renderActivity(reasoning, plainPalette).includes(ESC)).toBe(false);
 	});
 
@@ -32,6 +34,7 @@ describe("color (frozen contract)", () => {
 		const GREEN = "\u001b[32m";
 		const RED = "\u001b[31m";
 		const DIM = "\u001b[2m";
+		const YELLOW = "\u001b[33m";
 
 		// The glyph is colored; the tool name trails in default fg.
 		const ok = renderActivity(toolEnd(true), ansiPalette);
@@ -46,6 +49,10 @@ describe("color (frozen contract)", () => {
 		const think = renderActivity(reasoning, ansiPalette);
 		expect(think.includes(DIM)).toBe(true);
 		expect(think.includes("~ thinking")).toBe(true);
+
+		const warn = renderActivity(warning, ansiPalette);
+		expect(warn.includes(YELLOW)).toBe(true);
+		expect(warn.includes("! truncated")).toBe(true);
 	});
 
 	it("paletteFor picks plain for a non-TTY stream", () => {
