@@ -88,7 +88,9 @@ export interface Agent {
 export type AgentActivity =
 	| { kind: "tool-start"; tool: string; summary?: string }
 	| { kind: "tool-end"; tool: string; ok: boolean }
-	| { kind: "reasoning"; text: string };
+	| { kind: "reasoning"; text: string }
+	/** Informational warning; does not itself determine whether the run passed. */
+	| { kind: "warning"; text: string };
 
 /** Sink for {@link AgentActivity} events. Wired by the surface to render `-v` output. */
 export type AgentEventSink = (event: AgentActivity) => void;

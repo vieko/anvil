@@ -70,6 +70,25 @@ describe("PiAgent.dispatch", () => {
 		expect(res.usage?.output).toBeGreaterThan(0);
 	});
 
+	it("warns once when the final message is length-truncated and still returns the result", async () => {
+		faux.setResponses([fauxAssistantMessage("partial answer", { stopReason: "length" })]);
+		const activity: AgentActivity[] = [];
+		const agent = new PiAgent({
+			env,
+			modelRuntime,
+			resolveModel: () => model,
+			systemPrompt: "test",
+			onActivity: (event) => activity.push(event),
+		});
+
+		const result = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
+
+		expect(result.text).toBe("partial answer");
+		expect(activity.filter((event) => event.kind === "warning")).toEqual([
+			{ kind: "warning", text: "Final assistant message was cut off at the model's output token limit." },
+		]);
+	});
+
 	it("reports usage summed across every turn_end in the dispatch, not just the final message (#12)", async () => {
 		// Control: the same final answer with no tool call -- one turn, one turn_end.
 		faux.setResponses([fauxAssistantMessage("the outcome is done")]);

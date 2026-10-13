@@ -253,6 +253,7 @@ describe("renderActivity", () => {
 		expect(renderActivity({ kind: "reasoning", text: "first line\nsecond line" })).toBe(
 			"  ~ first line\n  ~ second line",
 		);
+		expect(renderActivity({ kind: "warning", text: "truncated" })).toBe("  ! truncated");
 	});
 });
 

@@ -119,7 +119,7 @@ export async function executeRun(
 
 /**
  * Render a live agent activity event as concise ASCII for `-v` output. Indented
- * to nest under the run header. `>` running, `+` ok, `x` error, `~` reasoning.
+ * to nest under the run header. `>` running, `+` ok, `x` error, `~` reasoning, `!` warning.
  * Reasoning blocks span multiple lines; each line is prefixed so the trace reads
  * as a distinct, dim block rather than as actions. The {@link Palette} adds
  * color on a TTY and is a no-op when piped, so plain output is unchanged.
@@ -136,6 +136,8 @@ export function renderActivity(event: AgentActivity, palette: Palette = plainPal
 				.split("\n")
 				.map((line) => palette.dim(`  ~ ${line}`))
 				.join("\n");
+		case "warning":
+			return palette.yellow(`  ! ${event.text}`);
 	}
 }
 
