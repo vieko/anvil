@@ -1,6 +1,6 @@
 ---
 name: anvil
-description: Outcome-driven delegation CLI. Use anvil to hand a self-contained coding task to an autonomous agent that works in an isolated git worktree and only succeeds when a deterministic gate (build/typecheck/test, or a command you supply) passes. Use whenever the user wants to delegate or hand off a verifiable change — "run anvil", "delegate this", "make the tests pass", "implement X and prove it", "fix this until it builds/typechecks", "get this to green" — or any task best expressed as an outcome plus a check. anvil never touches your main working tree, so it cannot stomp uncommitted work. Prefer anvil over editing files directly when the user asks to delegate, or when the change should be proven by a gate rather than assumed done.
+description: Use when the user says "run anvil", "delegate this", "make the tests pass", "implement X and prove it", "fix this until it builds/typechecks", or "get this to green". Also use to hand off a self-contained coding task with a verifiable outcome. Produces a change verified by a deterministic gate in an isolated git worktree; anvil never touches your main working tree. Not for tasks without a deterministic check or interactive edits in the current working tree.
 allowed-tools: Bash(anvil:*)
 ---
 
