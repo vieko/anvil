@@ -14,6 +14,8 @@ export interface RunOptions {
 	verify: string[];
 	/** Regexes identifying harness crashes for gate commands. */
 	gateCrashPattern: string[];
+	/** Default limit for each gate command, in milliseconds. */
+	gateTimeoutMs?: number;
 	/** Verify untouched fork before attempt 0 (default true). */
 	baseline: boolean;
 	/** Glob patterns linked into the worktree before the agent runs (symlink, copy fallback; e.g. "**\/.env.local"). */
@@ -64,6 +66,7 @@ export function parse(argv: string[]): Command {
 				"max-attempts": { type: "string", short: "n" },
 				verify: { type: "string", multiple: true },
 				"gate-crash-pattern": { type: "string", multiple: true },
+				"gate-timeout": { type: "string" },
 				"no-baseline": { type: "boolean" },
 				link: { type: "string", multiple: true },
 				contract: { type: "string", multiple: true },
@@ -108,6 +111,18 @@ export function parse(argv: string[]): Command {
 					return { kind: "error", message: `--max-attempts must be a positive integer (got "${raw}")` };
 				}
 			}
+			let gateTimeoutMs: number | undefined;
+			const rawTimeout = values["gate-timeout"] as string | undefined;
+			if (rawTimeout !== undefined) {
+				const match = /^(\d+(?:\.\d+)?)(s|m)?$/.exec(rawTimeout);
+				gateTimeoutMs = match ? Number(match[1]) * (match[2] === "m" ? 60_000 : 1_000) : NaN;
+				if (!Number.isSafeInteger(gateTimeoutMs) || gateTimeoutMs < 1 || gateTimeoutMs > 2_147_483_647) {
+					return {
+						kind: "error",
+						message: `--gate-timeout must be a positive duration (300, 300s, 10m), at most 2147483647 ms (got "${rawTimeout}")`,
+					};
+				}
+			}
 			const VALID_EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 			let effort: Effort | undefined;
 			const rawEffort = values.effort as string | undefined;
@@ -131,6 +146,7 @@ export function parse(argv: string[]): Command {
 					maxAttempts,
 					verify: (values.verify as string[] | undefined) ?? [],
 					gateCrashPattern: (values["gate-crash-pattern"] as string[] | undefined) ?? [],
+					gateTimeoutMs,
 					baseline: !((values["no-baseline"] as boolean | undefined) ?? false),
 					link: (values.link as string[] | undefined) ?? [],
 					contract: (values.contract as string[] | undefined) ?? [],
@@ -214,6 +230,8 @@ run options:
       --gate-crash-pattern <re>
                           Treat gate output matching <re> as a harness crash
                           (inconclusive, not a failure of the work; repeatable)
+      --gate-timeout <duration>
+                          Per-command gate limit: seconds, 300s, or 10m (default: 120s)
       --no-baseline       Skip the gate run on the untouched fork before attempt 0
       --link <glob>       Link file(s) into the worktree before the run (symlink,
                           copy fallback; repeatable; e.g. "**/.env.local"). Off by default.

@@ -14,6 +14,7 @@ describe("parse", () => {
 				maxAttempts: undefined,
 				verify: [],
 				gateCrashPattern: [],
+				gateTimeoutMs: undefined,
 				baseline: true,
 				link: [],
 				install: true,
@@ -68,6 +69,7 @@ describe("parse", () => {
 				maxAttempts: 5,
 				verify: ["npm test", "tsc --noEmit"],
 				gateCrashPattern: ["runner died", "spawn error"],
+				gateTimeoutMs: undefined,
 				baseline: false,
 				link: ["**/.env.local"],
 				install: false,
@@ -85,6 +87,34 @@ describe("parse", () => {
 		expect(parse(["run", "x", "--reasoning"])).toMatchObject({ kind: "run", options: { reasoning: true } });
 		expect(parse(["run", "x", "--effort", "high"])).toMatchObject({ kind: "run", options: { effort: "high" } });
 		expect(parse(["run", "x", "--effort", "bogus"])).toMatchObject({ kind: "error" });
+	});
+
+	it.each([
+		["300", 300_000],
+		["300s", 300_000],
+		["10m", 600_000],
+		["0.5s", 500],
+		["1.5m", 90_000],
+		["2147483.647s", 2_147_483_647],
+	])("parses --gate-timeout %s as %i ms", (value, timeoutMs) => {
+		expect(parse(["run", "x", "--gate-timeout", value as string])).toMatchObject({
+			kind: "run",
+			options: { gateTimeoutMs: timeoutMs },
+		});
+	});
+
+	it.each(["0", "0s", "0m", "-1", "-5m", "nope", "", "1h", "NaN", "Infinity", "1e3", "0.0001s", "2147484s"])(
+		"rejects --gate-timeout %s at parse time",
+		(value) => {
+			expect(parse(["run", "x", `--gate-timeout=${value}`])).toMatchObject({
+				kind: "error",
+				message: expect.stringContaining("--gate-timeout must be a positive duration"),
+			});
+		},
+	);
+
+	it("rejects --gate-timeout without a duration", () => {
+		expect(parse(["run", "x", "--gate-timeout"])).toMatchObject({ kind: "error" });
 	});
 
 	it("parses --json for run and status", () => {
