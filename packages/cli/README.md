@@ -21,6 +21,8 @@ run options:
                           terra/glm) or provider:id
   -n, --max-attempts <n>  Attempt cap before giving up (default: 3)
       --verify <cmd>      Gate command (repeatable; overrides auto-detection)
+      --gate-timeout <duration>
+                          Per-command gate limit: seconds, 300s, or 10m (default: 120s)
   -q, --quiet             Print only the final verdict
 ```
 

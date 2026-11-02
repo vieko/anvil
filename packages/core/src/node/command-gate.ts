@@ -54,6 +54,10 @@ export class CommandGate implements Gate {
 		this.options = options;
 	}
 
+	get timeoutMs(): number {
+		return this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+	}
+
 	async verify(ws: Workspace, signal?: AbortSignal): Promise<GateResult> {
 		const detect = this.options.detect ?? detectNodeTs;
 		const commands = this.options.commands ?? (await detect(ws));
@@ -112,7 +116,7 @@ export class CommandGate implements Gate {
 	): Promise<{ verdict: Verdict; result: CommandResult }> {
 		const flakeRuns = Math.max(1, this.options.flakeRuns ?? DEFAULT_FLAKE_RUNS);
 		const env = { ...DEFAULT_ENV, ...this.options.env };
-		const timeoutMs = gc.timeoutMs ?? this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+		const timeoutMs = gc.timeoutMs ?? this.timeoutMs;
 
 		const runs: { verdict: Verdict; exec: ExecResult; crash?: boolean }[] = [];
 		let totalMs = 0;

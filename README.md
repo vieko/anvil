@@ -68,6 +68,7 @@ Key options (`anvil --help` for the rest):
 | `--from <ref>` | Fork the worktree from this ref (default: `HEAD`); e.g. `main` while on a feature branch. |
 | `--verify "<cmd>"` | Gate command, repeatable. Omit it and Anvil auto-detects typecheck/build/test from `package.json`. |
 | `--gate-crash-pattern <regex>` | Extra gate-output pattern identifying a verifier harness crash (repeatable). |
+| `--gate-timeout <duration>` | Per-command gate limit for explicit and auto-detected commands: seconds (`300` or `300s`) or minutes (`10m`). Default: `120s`. |
 | `--no-baseline` | Skip the untouched-fork gate run before the first dispatch. |
 | `--contract <file>` | Seed a check (typically a failing test) into the worktree and **freeze** it: the agent must satisfy it, never edit it. The strongest gate. |
 | `--scope <glob>` | Fence the agent into these paths; a change outside **voids the run**. |
@@ -142,11 +143,14 @@ instead of re-reading the diff:
   "finalModel": "opus",
   "finalEffort": "high",
   "branch": "anvil/parser-tests/lz4k9",
-  "gate": { "commands": ["tsc --noEmit", "npm test"], "source": "explicit" },
+  "gate": { "commands": ["tsc --noEmit", "npm test"], "source": "explicit", "timeoutMs": 120000 },
   "contract": true,  // a contract was enforced (and, since a violation voids the run, held)
   "scope": true      // a scope was enforced (and held)
 }
 ```
+
+`gate.timeoutMs` is the default limit for each gate command, in milliseconds.
+Run records expose the same limit as `gateTimeoutMs`, including the default.
 
 `timeline` is the per-attempt history (#12 Tier 3): what each attempt actually
 dispatched, its verdict, and its own usage -- not just the final tally. Each

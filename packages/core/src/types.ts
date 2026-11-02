@@ -189,6 +189,8 @@ export interface GateResult {
 }
 
 export interface Gate {
+	/** Default per-command timeout in milliseconds, when the gate uses command limits. */
+	readonly timeoutMs?: number;
 	verify(ws: Workspace, signal?: AbortSignal): Promise<GateResult>;
 }
 
@@ -243,6 +245,8 @@ export interface RunRecord {
 	branch?: string;
 	/** OS pid of the process that ran this attempt, so a reader can check liveness instead of only a heartbeat age. */
 	pid?: number;
+	/** Default per-command gate timeout in milliseconds, when supplied by the gate. */
+	gateTimeoutMs?: number;
 	/** Free-text annotation for a record rewritten by tooling (e.g. `anvil status --prune`) rather than the run loop. */
 	note?: string;
 	updatedAt: string;

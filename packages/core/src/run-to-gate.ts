@@ -155,6 +155,7 @@ export async function runToGate(
 			errors: lastErrors,
 			branch: workspace.branch,
 			pid: options.pid,
+			gateTimeoutMs: gate.timeoutMs,
 			updatedAt: new Date().toISOString(),
 			// Cumulative across every attempt (#12): the sum of attempts[].usage, not
 			// the current dispatch alone -- snapshotted fresh each write so an earlier

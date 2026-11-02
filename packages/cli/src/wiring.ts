@@ -55,7 +55,7 @@ export async function buildRunDeps(
 			throw new Error(`anvil: invalid --gate-crash-pattern regex: ${pattern}`);
 		}
 	});
-	const gate = new CommandGate({ commands, crashPatterns });
+	const gate = new CommandGate({ commands, crashPatterns, timeoutMs: options.gateTimeoutMs });
 	const persist = new FileStatePersister({ dir: runsDir });
 
 	// Clamp escalation rungs to the catalog's provider-verified reasoning levels

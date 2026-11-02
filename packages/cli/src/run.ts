@@ -92,6 +92,7 @@ export async function executeRun(
 				gate: {
 					commands: result.gateCommands ?? [],
 					source: options.verify.length > 0 ? "explicit" : "autodetect",
+					timeoutMs: deps.gate.timeoutMs,
 				},
 				contract: options.contract.length > 0,
 				scope: options.scope.length > 0,
