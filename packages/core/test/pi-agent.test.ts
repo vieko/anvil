@@ -96,9 +96,7 @@ describe("PiAgent.dispatch", () => {
 		const control = await controlAgent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
 
 		// A tool-call turn followed by the same final answer: two assistant messages,
-		// two turn_ends. The faux provider's usage grows with the accumulated context,
-		// so the total must exceed the control's single-turn usage -- the final
-		// message alone (what the old code reported) would equal the control, not this.
+		// two turn_ends. Faux reports cached prompt tokens separately from input.
 		faux.setResponses([
 			fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("the outcome is done"),
@@ -107,8 +105,16 @@ describe("PiAgent.dispatch", () => {
 		const res = await agent.dispatch({ prompt: "do it", config: { model: "faux-cheap", effort: "low" } });
 
 		expect(res.text).toBe("the outcome is done");
-		expect(res.usage?.input).toBeGreaterThan(control.usage?.input ?? 0);
-		expect(res.usage?.output).toBeGreaterThan(control.usage?.output ?? 0);
+		const promptTokens = (usage: NonNullable<typeof res.usage>) =>
+			usage.input + usage.cacheRead + (usage.cacheWrite ?? 0);
+		if (!res.usage || !control.usage) throw new Error("expected usage");
+		expect(promptTokens(res.usage)).toBeGreaterThan(promptTokens(control.usage));
+		expect(res.usage.output).toBeGreaterThan(control.usage.output);
+		const messages = lastCreated().session.messages.filter((message) => message.role === "assistant");
+		expect(messages).toHaveLength(2);
+		for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+			expect(res.usage[field]).toBe(messages.reduce((sum, message) => sum + message.usage[field], 0));
+		}
 	});
 
 	it("prices each turn against the resolved model's cost table and sums it into usage.cost", async () => {
@@ -362,6 +368,37 @@ describe("PiAgent.dispatch", () => {
 		const second = await agent.dispatch({ prompt: "p2", config: { model: "m" } });
 
 		expect(second.sessionId).not.toBe(first.sessionId);
+	});
+
+	it("coerces edit arguments and rejects invalid writes before execution", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "anvil-tool-validation-"));
+		try {
+			await writeFile(join(dir, "target.txt"), "before");
+			faux.setResponses([
+				fauxAssistantMessage(
+					[fauxToolCall("edit", { path: "target.txt", edits: { oldText: "before", newText: "after" } })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage([fauxToolCall("write", { path: "target.txt" })], { stopReason: "toolUse" }),
+				fauxAssistantMessage("done"),
+			]);
+			const activity: AgentActivity[] = [];
+			const agent = new PiAgent({
+				env: new NodeExecEnv({ cwd: dir }),
+				modelRuntime,
+				resolveModel: () => model,
+				systemPrompt: "test",
+				onActivity: (event) => activity.push(event),
+			});
+
+			await agent.dispatch({ prompt: "go", config: { model: "faux-cheap" } });
+
+			expect(await readFile(join(dir, "target.txt"), "utf8")).toBe("after");
+			expect(activity).toContainEqual({ kind: "tool-end", tool: "edit", ok: true });
+			expect(activity).toContainEqual({ kind: "tool-end", tool: "write", ok: false });
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("streams tool-call activity to the sink and persists a JSONL transcript", async () => {

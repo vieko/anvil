@@ -21,7 +21,7 @@ describe("createModelResolver", () => {
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-5.5");
 		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-6-luna");
 		expect(resolve({ model: "sol" }).id).toBe("openai/gpt-6.1-sol");
-		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-5.6-terra");
+		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-6.1-terra");
 		expect(resolve({ model: "glm" }).id).toBe("zai/glm-5.3");
 		expect(resolve({ model: "fable" }).id).toBe("anthropic/claude-fable-5.1");
 		expect(resolve({ model: "astra" }).id).toBe("openai/gpt-6-astra");
@@ -104,7 +104,7 @@ describe("createModelResolver", () => {
 		for (const [alias, id] of [
 			["sol", "openai/gpt-6.1-sol"],
 			["luna", "openai/gpt-6-luna"],
-			["terra", "openai/gpt-5.6-terra"],
+			["terra", "openai/gpt-6.1-terra"],
 		] as const) {
 			const model = resolve({ model: alias });
 			const registry = getBuiltinModel("vercel-ai-gateway", id);
@@ -134,6 +134,13 @@ describe("createModelResolver", () => {
 			cacheRead: 0.01,
 			cacheWrite: 0.125,
 			tiers: [{ inputTokensAbove: 272_000, input: 0.2, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }],
+		});
+		expect(resolve({ model: "terra" }).cost).toEqual({
+			input: 1,
+			output: 5,
+			cacheRead: 0.05,
+			cacheWrite: 1.25,
+			tiers: [{ inputTokensAbove: 272_000, input: 2, output: 7.5, cacheRead: 0.1, cacheWrite: 2.5 }],
 		});
 	});
 
@@ -375,7 +382,7 @@ describe("withGatewayCompat", () => {
 	});
 
 	it("pins other openai/* models resolved by identity to OpenAI's route, without a thinking overlay", () => {
-		for (const id of ["openai/gpt-6-sol", "openai/gpt-6-luna", "openai/gpt-5.6-terra"]) {
+		for (const id of ["openai/gpt-6-sol", "openai/gpt-6-luna", "openai/gpt-6.1-terra"]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toEqual({
 				...builtinModels().getModel("vercel-ai-gateway", id)?.compat,
 				vercelGatewayRouting: { only: ["openai"] },

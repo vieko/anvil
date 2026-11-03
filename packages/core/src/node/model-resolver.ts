@@ -39,7 +39,7 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	// Same rung price as sonnet-5; unlike sonnet through the gateway it does not
 	// drop edit tool bodies in transit (`edits: [{}]`).
 	sol: "vercel-ai-gateway:openai/gpt-6.1-sol",
-	terra: "vercel-ai-gateway:openai/gpt-5.6-terra",
+	terra: "vercel-ai-gateway:openai/gpt-6.1-terra",
 	glm: "vercel-ai-gateway:zai/glm-5.3",
 	// Opt-in strong base (1M+ context, OpenAI's strengths); not the default strong
 	// tier: its cache-read rate is 5x opus-5.5's, and cache reads are ~98% of the
@@ -167,9 +167,9 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * backend mid-run. GPT-6 Astra alone additionally gets `forceAdaptiveThinking`
  * plus the full `low..max` level map: on the gateway pi only sends
  * `output_config.effort` for this model under adaptive thinking, and only the
- * levels the map names are selectable (the catalog names just `xhigh`). Sol
- * and luna already resolve a usable `off..xhigh` level map from pi's catalog,
- * so they get the pin and nothing else. `supportsMidConvoEffort` stays
+ * levels the map names are selectable (the catalog names just `xhigh`).
+ * sol, luna and terra already resolve a usable `off..xhigh` level map from pi's
+ * catalog, so they get the pin and nothing else. `supportsMidConvoEffort` stays
  * Claude-only.
  *
  * The overlay rides on the Model object itself: a pi 1.x session sends
