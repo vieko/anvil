@@ -110,6 +110,7 @@ describe("buildEscalationLadder", () => {
 	it("keeps fable as a strong base: a fable base climbs effort on fable and never switches", () => {
 		expect(DEFAULT_WEAK_TIER.test("fable")).toBe(false);
 		expect(DEFAULT_WEAK_TIER.test("anthropic/claude-fable-5.1")).toBe(false);
+		expect(DEFAULT_WEAK_TIER.test("anthropic/claude-fable-5.2")).toBe(false);
 		expect(buildEscalationLadder({ model: "fable", effort: "low" })).toEqual([
 			{ model: "fable", effort: "low" },
 			{ model: "fable", effort: "high" },
