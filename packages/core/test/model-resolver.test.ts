@@ -23,7 +23,7 @@ describe("createModelResolver", () => {
 		expect(resolve({ model: "sol" }).id).toBe("openai/gpt-6.1-sol");
 		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-6.1-terra");
 		expect(resolve({ model: "glm" }).id).toBe("zai/glm-5.3");
-		expect(resolve({ model: "fable" }).id).toBe("anthropic/claude-fable-5.1");
+		expect(resolve({ model: "fable" }).id).toBe("anthropic/claude-fable-5.2");
 		expect(resolve({ model: "astra" }).id).toBe("openai/gpt-6-astra");
 	});
 
@@ -75,11 +75,11 @@ describe("createModelResolver", () => {
 			supportsTemperature: false,
 		});
 		// Pin the gateway terms the strong tier was picked on: cheaper than
-		// fable-5.1 on cache-read (0.20 vs 0.25), cache-write (5 vs 12.5) and
-		// output (20 vs 50), on a ~98% cache-read rung.
+		// fable on a ~98% cache-read rung: level with fable-5.2 on cache-read
+		// (0.20), cheaper on cache-write (5 vs 10) and output (20 vs 40).
 		expect(opus.cost).toEqual({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 });
 		const fable = resolve({ model: "fable" });
-		expect(fable.cost.cacheRead).toBeGreaterThan(opus.cost.cacheRead);
+		expect(fable.cost.cacheRead).toBeGreaterThanOrEqual(opus.cost.cacheRead);
 		expect(fable.cost.cacheWrite).toBeGreaterThan(opus.cost.cacheWrite);
 		expect(fable.cost.output).toBeGreaterThan(opus.cost.output);
 	});
@@ -319,7 +319,12 @@ describe("withGatewayCompat", () => {
 	};
 
 	it("overlays gateway Claude models resolved by identity", () => {
-		for (const id of ["anthropic/claude-opus-5", "anthropic/claude-opus-5.5", "anthropic/claude-fable-5.1"]) {
+		for (const id of [
+			"anthropic/claude-opus-5",
+			"anthropic/claude-opus-5.5",
+			"anthropic/claude-fable-5.1",
+			"anthropic/claude-fable-5.2",
+		]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
 				vercelGatewayRouting: { only: ["anthropic"] },
 				supportsMidConvoEffort: true,
@@ -335,6 +340,7 @@ describe("withGatewayCompat", () => {
 			"anthropic/claude-opus-5",
 			"anthropic/claude-opus-5.5",
 			"anthropic/claude-fable-5.1",
+			"anthropic/claude-fable-5.2",
 			"anthropic/claude-sonnet-5",
 			"anthropic/claude-haiku-4.5",
 		]) {
@@ -345,6 +351,7 @@ describe("withGatewayCompat", () => {
 			"anthropic/claude-opus-5",
 			"anthropic/claude-opus-5.5",
 			"anthropic/claude-fable-5.1",
+			"anthropic/claude-fable-5.2",
 		]) {
 			expect(models.getModel("vercel-ai-gateway", id)?.compat).toMatchObject({
 				supportsMidConvoEffort: true,

@@ -34,7 +34,7 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	haiku: "vercel-ai-gateway:anthropic/claude-haiku-5.5",
 	sonnet: "vercel-ai-gateway:anthropic/claude-sonnet-5",
 	opus: "vercel-ai-gateway:anthropic/claude-opus-5.5",
-	fable: "vercel-ai-gateway:anthropic/claude-fable-5.1",
+	fable: "vercel-ai-gateway:anthropic/claude-fable-5.2",
 	luna: "vercel-ai-gateway:openai/gpt-6-luna",
 	// Same rung price as sonnet-5; unlike sonnet through the gateway it does not
 	// drop edit tool bodies in transit (`edits: [{}]`).
@@ -101,6 +101,7 @@ const MID_CONVO_EFFORT_MODELS = new Set([
 	"anthropic/claude-opus-5",
 	"anthropic/claude-opus-5.5",
 	"anthropic/claude-fable-5.1",
+	"anthropic/claude-fable-5.2",
 ]);
 
 /**
@@ -111,6 +112,7 @@ const MID_CONVO_SYSTEM_MODELS = new Set([
 	"anthropic/claude-haiku-5.5",
 	"anthropic/claude-fable-5",
 	"anthropic/claude-fable-5.1",
+	"anthropic/claude-fable-5.2",
 	"anthropic/claude-opus-4.8",
 	"anthropic/claude-opus-5",
 	"anthropic/claude-opus-5.5",
