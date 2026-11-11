@@ -53,8 +53,8 @@ export interface WorktreeWorkspaceOptions {
 // keep seeing complete output in practice.
 const OUTPUT_LIMITS: OutputLimits = { maxBytes: 8 * 1024 * 1024, maxLines: 200_000 };
 
-// Committer identity so commits never fail in a temp repo with no global git
-// identity configured. Overridable by the repo's own config when present.
+// Fallback identity used only when the worktree has no configured user.name or
+// user.email (anvil#65).
 const GIT_IDENTITY: Record<string, string> = {
 	GIT_AUTHOR_NAME: "anvil",
 	GIT_AUTHOR_EMAIL: "anvil@localhost",
@@ -85,6 +85,7 @@ export class WorktreeWorkspace implements Workspace {
 	private removed = false;
 	private contractPaths: string[] = [];
 	private scopeGlobs: string[] = [];
+	private gitIdentity: Record<string, string> = GIT_IDENTITY;
 
 	private constructor(args: {
 		cwd: string;
@@ -140,9 +141,14 @@ export class WorktreeWorkspace implements Workspace {
 	 * Install failure is fatal -- a broken install is never handed to the agent.
 	 */
 	private async prepare(opts: { contractFiles?: string[]; linkedFiles?: string[]; install?: boolean }): Promise<void> {
+		this.gitIdentity = await resolveGitIdentity((cmd) => this.exec(cmd));
 		if (opts.contractFiles?.length) {
-			this.contractPaths = await seedContract(this.repoRoot, this.cwd, opts.contractFiles, (cmd, o) =>
-				this.exec(cmd, o),
+			this.contractPaths = await seedContract(
+				this.repoRoot,
+				this.cwd,
+				opts.contractFiles,
+				(cmd, o) => this.exec(cmd, o),
+				this.gitIdentity,
 			);
 		}
 		if (opts.linkedFiles?.length) {
@@ -199,7 +205,7 @@ export class WorktreeWorkspace implements Workspace {
 		// developer commits. Project pre-commit hooks (husky/lint-staged/typecheck)
 		// assume a dev's full toolchain and can be slow, flaky, or secret-dependent;
 		// correctness is the gate's job, not the hook's.
-		const commit = await this.exec(`git commit -m ${shellQuote(message)} --no-verify`, { env: GIT_IDENTITY });
+		const commit = await this.exec(`git commit -m ${shellQuote(message)} --no-verify`, { env: this.gitIdentity });
 		return commit.exitCode === 0;
 	}
 
@@ -302,6 +308,21 @@ function excludeHeavyDirs(path: string): boolean {
 	return path === "node_modules" || path === ".git" || path.includes("/node_modules") || path.includes("/.git");
 }
 
+/** Resolve the worktree's configured identity once, falling back unless both fields are set. */
+async function resolveGitIdentity(exec: (cmd: string) => Promise<ExecResult>): Promise<Record<string, string>> {
+	const [name, email] = await Promise.all([exec("git config --get user.name"), exec("git config --get user.email")]);
+	if (name.exitCode !== 0 || email.exitCode !== 0) return GIT_IDENTITY;
+	const userName = name.stdout.replace(/\r?\n$/, "");
+	const userEmail = email.stdout.replace(/\r?\n$/, "");
+	if (userName === "" || userEmail === "") return GIT_IDENTITY;
+	return {
+		GIT_AUTHOR_NAME: userName,
+		GIT_AUTHOR_EMAIL: userEmail,
+		GIT_COMMITTER_NAME: userName,
+		GIT_COMMITTER_EMAIL: userEmail,
+	};
+}
+
 /**
  * Copy contract file(s) from the source tree into the worktree and commit them
  * into the base, so they are present at HEAD and {@link WorktreeWorkspace.assertContract}
@@ -313,6 +334,7 @@ async function seedContract(
 	destRoot: string,
 	files: string[],
 	exec: (cmd: string, opts?: ExecOptions) => Promise<ExecResult>,
+	gitIdentity: Record<string, string>,
 ): Promise<string[]> {
 	for (const rel of files) {
 		const dest = join(destRoot, rel);
@@ -332,7 +354,7 @@ async function seedContract(
 	if (staged.exitCode !== 0) {
 		// --no-verify: see WorktreeWorkspace.commit -- skip project pre-commit hooks.
 		const commit = await exec(`git commit -m ${shellQuote("anvil: seed contract")} --no-verify`, {
-			env: GIT_IDENTITY,
+			env: gitIdentity,
 		});
 		if (commit.exitCode !== 0) {
 			throw new Error(`anvil: could not commit contract file(s): ${(commit.stderr || commit.stdout).trim()}`);
