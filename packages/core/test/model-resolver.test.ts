@@ -416,17 +416,18 @@ describe("withGatewayCompat", () => {
 describe("applyGatewayRouting", () => {
 	// The `before_provider_request` hook body: pi's anthropic-messages adapter ignores
 	// `compat.vercelGatewayRouting` (pi#9211), so this writes the body-level
-	// `providerOptions.gateway` the gateway's /v1/messages actually honors.
+	// `providerOptions.gateway` the gateway's /v1/messages actually honors, with
+	// the no-training flag on every gateway request (#67).
 	const resolve = createModelResolver();
 	const opus = resolve({ model: "opus" });
 
-	it("adds providerOptions.gateway.only for a fenced gateway anthropic model, without mutating the payload", () => {
+	it("adds the fence and the no-training flag for a gateway anthropic model, without mutating the payload", () => {
 		const payload = { model: "anthropic/claude-opus-5.5", messages: [] };
 		const routed = applyGatewayRouting(opus, payload);
 		expect(routed).toEqual({
 			model: "anthropic/claude-opus-5.5",
 			messages: [],
-			providerOptions: { gateway: { only: ["anthropic"] } },
+			providerOptions: { gateway: { only: ["anthropic"], disallowPromptTraining: true } },
 		});
 		expect(routed).not.toBe(payload);
 		expect(payload).toEqual({ model: "anthropic/claude-opus-5.5", messages: [] });
@@ -434,13 +435,15 @@ describe("applyGatewayRouting", () => {
 
 	it("fences astra to openai and preserves sibling providerOptions keys", () => {
 		const routed = applyGatewayRouting(resolve({ model: "astra" }), { providerOptions: { other: 1 } });
-		expect(routed).toEqual({ providerOptions: { other: 1, gateway: { only: ["openai"] } } });
+		expect(routed).toEqual({
+			providerOptions: { other: 1, gateway: { only: ["openai"], disallowPromptTraining: true } },
+		});
 	});
 
 	it("fences sol and luna to openai through the same pin", () => {
 		for (const alias of ["sol", "luna"]) {
 			expect(applyGatewayRouting(resolve({ model: alias }), {})).toEqual({
-				providerOptions: { gateway: { only: ["openai"] } },
+				providerOptions: { gateway: { only: ["openai"], disallowPromptTraining: true } },
 			});
 		}
 	});
@@ -449,24 +452,38 @@ describe("applyGatewayRouting", () => {
 		const only = ["anthropic", "bedrock"];
 		const order = ["anthropic"];
 		const pinned = { ...opus, compat: { vercelGatewayRouting: { only, order } } } as Model<any>;
-		const routed = applyGatewayRouting(pinned, {}) as { providerOptions: { gateway: Record<string, string[]> } };
-		expect(routed.providerOptions.gateway).toEqual({ only: ["anthropic", "bedrock"], order: ["anthropic"] });
+		const routed = applyGatewayRouting(pinned, {}) as { providerOptions: { gateway: Record<string, unknown> } };
+		expect(routed.providerOptions.gateway).toEqual({
+			only: ["anthropic", "bedrock"],
+			order: ["anthropic"],
+			disallowPromptTraining: true,
+		});
 		expect(routed.providerOptions.gateway.only).not.toBe(only);
 		expect(routed.providerOptions.gateway.order).not.toBe(order);
 	});
 
-	it("returns undefined for a gateway model without the pin, an empty pin, or a non-gateway model", () => {
-		expect(applyGatewayRouting(resolve({ model: "glm" }), {})).toBeUndefined();
+	it("sets the no-training flag alone for a gateway model without a pin or with an empty pin", () => {
+		// glm has no fence, and some of its gateway endpoints train on prompts.
+		const flagOnly = { providerOptions: { gateway: { disallowPromptTraining: true } } };
+		expect(applyGatewayRouting(resolve({ model: "glm" }), {})).toEqual(flagOnly);
 		const empty = { ...opus, compat: { vercelGatewayRouting: {} } } as Model<any>;
-		expect(applyGatewayRouting(empty, {})).toBeUndefined();
-		const direct = { ...opus, provider: "anthropic" } as Model<any>;
-		expect(applyGatewayRouting(direct, {})).toBeUndefined();
+		expect(applyGatewayRouting(empty, {})).toEqual(flagOnly);
 	});
 
-	it("returns undefined when providerOptions.gateway is already present or the payload is not an object", () => {
-		const payload = { providerOptions: { gateway: { order: ["bedrock"] } } };
-		expect(applyGatewayRouting(opus, payload)).toBeUndefined();
-		expect(payload).toEqual({ providerOptions: { gateway: { order: ["bedrock"] } } });
+	it("keeps the routing a payload already carries and adds the flag, overriding a false one", () => {
+		const payload = { providerOptions: { gateway: { order: ["bedrock"], disallowPromptTraining: false } } };
+		expect(applyGatewayRouting(opus, payload)).toEqual({
+			providerOptions: { gateway: { order: ["bedrock"], disallowPromptTraining: true } },
+		});
+		expect(payload).toEqual({ providerOptions: { gateway: { order: ["bedrock"], disallowPromptTraining: false } } });
+	});
+
+	it("returns undefined for a non-gateway model, a payload that has the flag, and a payload it cannot read", () => {
+		const direct = { ...opus, provider: "anthropic" } as Model<any>;
+		expect(applyGatewayRouting(direct, {})).toBeUndefined();
+		const done = { providerOptions: { gateway: { order: ["bedrock"], disallowPromptTraining: true } } };
+		expect(applyGatewayRouting(opus, done)).toBeUndefined();
+		expect(applyGatewayRouting(opus, { providerOptions: { gateway: "anthropic" } })).toBeUndefined();
 		expect(applyGatewayRouting(opus, undefined)).toBeUndefined();
 		expect(applyGatewayRouting(opus, "body")).toBeUndefined();
 	});

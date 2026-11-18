@@ -181,7 +181,8 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  * {@link applyGatewayRouting}, because pi-ai's anthropic-messages adapter does
  * not send `vercelGatewayRouting` (only openai-completions does; see
  * earendil-works/pi#9211). The compat field is the declaration; the hook is
- * what writes `providerOptions.gateway` into the request body.
+ * what writes `providerOptions.gateway` into the request body. The same hook
+ * sets `disallowPromptTraining` on every gateway request, pinned or not.
  */
 export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TModel {
 	if (model.provider !== "vercel-ai-gateway") return model;
@@ -219,28 +220,49 @@ export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TMo
 }
 
 /**
- * The `before_provider_request` hook body: write `compat.vercelGatewayRouting` into the
- * request as `providerOptions.gateway.{only,order}`, which the gateway's
- * `/v1/messages` honors (the Anthropic SDK forwards the extra body key). pi's
- * anthropic-messages adapter never sends it itself (earendil-works/pi#9211).
+ * `providerOptions.gateway` as anvil sends it: the routing pin plus the
+ * no-training floor.
+ */
+type GatewayRequestOptions = VercelGatewayRouting & { disallowPromptTraining: true };
+
+/**
+ * The `before_provider_request` hook body: write `providerOptions.gateway`
+ * into every Vercel AI Gateway request. The gateway's `/v1/messages` honors
+ * it (the Anthropic SDK forwards the extra body key).
  *
- * Returns `undefined` (leave the payload alone) for non-gateway models, models
- * with no `only`/`order` pin, non-object payloads, and payloads that already
- * carry `providerOptions.gateway` -- so this is a no-op the day pi's adapter
- * sends it. Never mutates `payload`: a new object is returned.
+ * - `disallowPromptTraining: true` on every gateway request, pinned or not. A
+ *   golem's prompts hold the source of the repo it works in, and without the
+ *   flag the only thing that keeps them from a provider that trains on them is
+ *   the key's team allowlist (#67). A model whose providers all train fails
+ *   with the gateway's `no_providers_available` error instead of running;
+ *   there is no switch to turn this off.
+ * - `only` / `order` from `compat.vercelGatewayRouting`, which pi's
+ *   anthropic-messages adapter never sends itself (earendil-works/pi#9211).
+ *
+ * A payload that already carries `providerOptions.gateway` keeps its own
+ * routing and gains the flag, so the pin is not written twice the day pi's
+ * adapter sends it.
+ *
+ * Returns `undefined` (leave the payload alone) for non-gateway models,
+ * non-object payloads, a `gateway` value that is not an object, and a payload
+ * that already has the flag. Never mutates `payload`: a new object is
+ * returned.
  */
 export function applyGatewayRouting(model: Model<any>, payload: unknown): unknown | undefined {
 	if (model.provider !== "vercel-ai-gateway") return undefined;
-	// Cast: `Model<any>["compat"]` collapses to `never` for an unresolved api.
-	const routing = (model.compat as { vercelGatewayRouting?: VercelGatewayRouting } | undefined)?.vercelGatewayRouting;
-	if (routing?.only === undefined && routing?.order === undefined) return undefined;
 	if (!isRecord(payload)) return undefined;
 	const existing = isRecord(payload.providerOptions) ? payload.providerOptions : undefined;
-	if (existing?.gateway !== undefined) return undefined;
-	const gateway: VercelGatewayRouting = {};
-	if (routing.only !== undefined) gateway.only = [...routing.only];
-	if (routing.order !== undefined) gateway.order = [...routing.order];
-	return { ...payload, providerOptions: { ...existing, gateway } };
+	const sent = existing?.gateway;
+	if (sent !== undefined && !isRecord(sent)) return undefined;
+	if (sent?.disallowPromptTraining === true) return undefined;
+	const gateway: GatewayRequestOptions = { disallowPromptTraining: true };
+	if (sent === undefined) {
+		// Cast: `Model<any>["compat"]` collapses to `never` for an unresolved api.
+		const routing = (model.compat as { vercelGatewayRouting?: VercelGatewayRouting } | undefined)?.vercelGatewayRouting;
+		if (routing?.only !== undefined) gateway.only = [...routing.only];
+		if (routing?.order !== undefined) gateway.order = [...routing.order];
+	}
+	return { ...payload, providerOptions: { ...existing, gateway: { ...sent, ...gateway } } };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
