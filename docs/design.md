@@ -177,6 +177,11 @@ anthropic-messages adapter does not send `vercelGatewayRouting` itself
 (earendil-works/pi#9211). The compat overlay rides on the `Model` object the
 resolver returns; a pi session sends requests with exactly that object. A run that silently moved backends would pay a
 full-prefix cache rewrite and lose the beta headers the effort ladder relies on.
+The same extension sets `providerOptions.gateway.disallowPromptTraining: true`
+on every gateway request, pinned or not (#67): a golem's prompts hold the
+source of the repo it works in, and the pin alone does not cover a model with
+no fence (`glm`) or a key from a team with no provider allowlist. A model whose
+providers all train fails with the gateway's error instead of running.
 - first-class faux provider + in-memory sessions = deterministic tests (the
   real SDK session driven against pi-ai's faux provider, no network, no key).
 

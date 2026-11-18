@@ -93,8 +93,8 @@ export function createHermeticModelRuntime(): Promise<ModelRuntime> {
 }
 
 /**
- * Writes the gateway routing pin into every provider request (see
- * {@link applyGatewayRouting}). `ctx.model` is the session's current model --
+ * Writes the gateway routing pin and the no-training flag into every provider
+ * request (see {@link applyGatewayRouting}). `ctx.model` is the session's current model --
  * the same object the request is built from, so it carries the resolver's
  * gateway compat overlay. Loaded as an inline factory, which the resource
  * loader appends after discovery, so `noExtensions` does not drop it.

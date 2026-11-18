@@ -304,7 +304,7 @@ describe("PiAgent.dispatch", () => {
 			expect(output).toEqual({
 				model: "anthropic/claude-opus-5",
 				messages: [],
-				providerOptions: { gateway: { only: ["anthropic"] } },
+				providerOptions: { gateway: { only: ["anthropic"], disallowPromptTraining: true } },
 			});
 			expect(output).not.toBe(input);
 			// The original payload object is not mutated.
@@ -320,7 +320,7 @@ describe("PiAgent.dispatch", () => {
 
 			expect(output).toEqual({
 				model: "openai/gpt-6-astra",
-				providerOptions: { other: { keep: true }, gateway: { only: ["openai"] } },
+				providerOptions: { other: { keep: true }, gateway: { only: ["openai"], disallowPromptTraining: true } },
 			});
 			expect(input).toEqual(snapshot);
 		});
@@ -328,34 +328,45 @@ describe("PiAgent.dispatch", () => {
 		it("fences every openai/* gateway model (sol, luna) to providerOptions.gateway.only = ['openai']", async () => {
 			for (const id of ["openai/gpt-6-sol", "openai/gpt-6-luna"]) {
 				const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", id);
-				expect(output).toEqual({ model: id, messages: [], providerOptions: { gateway: { only: ["openai"] } } });
+				expect(output).toEqual({
+					model: id,
+					messages: [],
+					providerOptions: { gateway: { only: ["openai"], disallowPromptTraining: true } },
+				});
 				expect(output).not.toBe(input);
 				expect(input).toEqual(snapshot);
 			}
 		});
 
-		it("leaves a gateway model without the compat pin untouched", async () => {
-			// An unchanged hook resolves to the original payload object.
+		it("sets the no-training flag on a gateway model without the compat pin", async () => {
 			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "zai/glm-5.3");
 
-			expect(output).toBe(input);
+			expect(output).toEqual({
+				model: "zai/glm-5.3",
+				messages: [],
+				providerOptions: { gateway: { disallowPromptTraining: true } },
+			});
 			expect(input).toEqual(snapshot);
 		});
 
 		it("leaves a non-gateway model untouched", async () => {
+			// An unchanged hook resolves to the original payload object.
 			const { input, snapshot, output } = await routeThrough("anthropic", "anthropic/claude-opus-5");
 
 			expect(output).toBe(input);
 			expect(input).toEqual(snapshot);
 		});
 
-		it("leaves a payload that already carries providerOptions.gateway untouched (no-op once pi sends it)", async () => {
+		it("keeps the routing a payload already carries and adds the flag (once pi sends the pin itself)", async () => {
 			const { input, snapshot, output } = await routeThrough("vercel-ai-gateway", "anthropic/claude-opus-5", {
 				model: "anthropic/claude-opus-5",
 				providerOptions: { gateway: { order: ["bedrock"] } },
 			});
 
-			expect(output).toBe(input);
+			expect(output).toEqual({
+				model: "anthropic/claude-opus-5",
+				providerOptions: { gateway: { order: ["bedrock"], disallowPromptTraining: true } },
+			});
 			expect(input).toEqual(snapshot);
 		});
 	});
