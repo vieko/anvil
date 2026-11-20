@@ -38,13 +38,13 @@ export const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 	luna: "vercel-ai-gateway:openai/gpt-6-luna",
 	// Same rung price as sonnet-5; unlike sonnet through the gateway it does not
 	// drop edit tool bodies in transit (`edits: [{}]`).
-	sol: "vercel-ai-gateway:openai/gpt-6.1-sol",
+	sol: "vercel-ai-gateway:openai/gpt-6.2-sol",
 	terra: "vercel-ai-gateway:openai/gpt-6.1-terra",
 	glm: "vercel-ai-gateway:zai/glm-5.3",
 	// Opt-in strong base (1M+ context, OpenAI's strengths); not the default strong
-	// tier: its cache-read rate is 5x opus-5.5's, and cache reads are ~98% of the
+	// tier: its cache-read rate is 2x opus-5.5's, and cache reads are ~98% of the
 	// strong rung's spend.
-	astra: "vercel-ai-gateway:openai/gpt-6-astra",
+	astra: "vercel-ai-gateway:openai/gpt-6.2-astra",
 };
 
 /**
@@ -118,8 +118,8 @@ const MID_CONVO_SYSTEM_MODELS = new Set([
 	"anthropic/claude-opus-5.5",
 ]);
 
-/** The `openai/*` gateway model that gets a thinking overlay on top of the routing pin (see {@link withGatewayCompat}). */
-const ASTRA_GATEWAY_ID = "openai/gpt-6-astra";
+/** The `openai/*` gateway models that get a thinking overlay on top of the routing pin (see {@link withGatewayCompat}). */
+const ASTRA_GATEWAY_IDS = new Set(["openai/gpt-6-astra", "openai/gpt-6.2-astra"]);
 
 /** Astra's full effort map; pi's catalog entry names only `xhigh`. */
 const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
@@ -166,9 +166,9 @@ const ASTRA_THINKING_LEVELS: ThinkingLevelMap = {
  *
  * Every `openai/*` model is fenced to OpenAI's route the same way (`only`, not
  * `order`), so sol / luna / terra / astra never silently move to another
- * backend mid-run. GPT-6 Astra alone additionally gets `forceAdaptiveThinking`
+ * backend mid-run. GPT-6 and GPT-6.2 Astra additionally get `forceAdaptiveThinking`
  * plus the full `low..max` level map: on the gateway pi only sends
- * `output_config.effort` for this model under adaptive thinking, and only the
+ * `output_config.effort` for these models under adaptive thinking, and only the
  * levels the map names are selectable (the catalog names just `xhigh`).
  * sol, luna and terra already resolve a usable `off..xhigh` level map from pi's
  * catalog, so they get the pin and nothing else. `supportsMidConvoEffort` stays
@@ -209,7 +209,7 @@ export function withGatewayCompat<TModel extends Model<any>>(model: TModel): TMo
 				vercelGatewayRouting: { only: ["openai"] },
 			} as TModel["compat"],
 		};
-		if (model.id !== ASTRA_GATEWAY_ID) return pinned;
+		if (!ASTRA_GATEWAY_IDS.has(model.id)) return pinned;
 		return {
 			...pinned,
 			thinkingLevelMap: { ...ASTRA_THINKING_LEVELS },

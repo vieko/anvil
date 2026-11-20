@@ -20,11 +20,11 @@ describe("createModelResolver", () => {
 		expect(resolve({ model: "sonnet" }).id).toBe("anthropic/claude-sonnet-5");
 		expect(resolve({ model: "haiku" }).id).toBe("anthropic/claude-haiku-5.5");
 		expect(resolve({ model: "luna" }).id).toBe("openai/gpt-6-luna");
-		expect(resolve({ model: "sol" }).id).toBe("openai/gpt-6.1-sol");
+		expect(resolve({ model: "sol" }).id).toBe("openai/gpt-6.2-sol");
 		expect(resolve({ model: "terra" }).id).toBe("openai/gpt-6.1-terra");
 		expect(resolve({ model: "glm" }).id).toBe("zai/glm-5.3");
 		expect(resolve({ model: "fable" }).id).toBe("anthropic/claude-fable-5.2");
-		expect(resolve({ model: "astra" }).id).toBe("openai/gpt-6-astra");
+		expect(resolve({ model: "astra" }).id).toBe("openai/gpt-6.2-astra");
 	});
 
 	it("every DEFAULT_WEAK_TIER-anticipated alias resolves (terra/glm gap closed)", () => {
@@ -102,7 +102,7 @@ describe("createModelResolver", () => {
 	it("fences every openai/* gateway model to OpenAI's route; only astra gets a thinking overlay", () => {
 		const resolve = createModelResolver();
 		for (const [alias, id] of [
-			["sol", "openai/gpt-6.1-sol"],
+			["sol", "openai/gpt-6.2-sol"],
 			["luna", "openai/gpt-6-luna"],
 			["terra", "openai/gpt-6.1-terra"],
 		] as const) {
@@ -119,7 +119,7 @@ describe("createModelResolver", () => {
 			expect(model).not.toBe(registry);
 			expect(registry.compat ?? {}).not.toHaveProperty("vercelGatewayRouting");
 		}
-		// sol matches sonnet's rung price on the gateway (6.1 halves the cache-read rate).
+		// sol matches sonnet's rung price on the gateway (6.1 halved the cache-read rate; 6.2 keeps it).
 		// pi-ai 1.1.0 adds the gateway's long-context tier (2x input above 272K).
 		expect(resolve({ model: "sol" }).cost).toEqual({
 			input: 2,
@@ -144,14 +144,14 @@ describe("createModelResolver", () => {
 		});
 	});
 
-	it("resolves astra to GPT-6 Astra on the gateway with the routing pin, adaptive thinking, and the full effort map", () => {
+	it("resolves astra to GPT-6.2 Astra on the gateway with the routing pin, adaptive thinking, and the full effort map", () => {
 		const resolve = createModelResolver();
 		const astra = resolve({ model: "astra" });
 		expect(astra.provider).toBe("vercel-ai-gateway");
-		expect(astra.id).toBe("openai/gpt-6-astra");
-		expect(astra.name).toBe("GPT-6 Astra");
+		expect(astra.id).toBe("openai/gpt-6.2-astra");
+		expect(astra.name).toBe("GPT-6.2 Astra");
 		expect(astra.compat).toEqual({
-			...getBuiltinModel("vercel-ai-gateway", "openai/gpt-6-astra").compat,
+			...getBuiltinModel("vercel-ai-gateway", "openai/gpt-6.2-astra").compat,
 			vercelGatewayRouting: { only: ["openai"] },
 			forceAdaptiveThinking: true,
 		});
@@ -167,14 +167,14 @@ describe("createModelResolver", () => {
 			max: "max",
 		});
 		expect(getSupportedThinkingLevels(astra)).toEqual(["low", "medium", "high", "xhigh", "max"]);
-		// Pin the gateway terms the ladder prices against: 5x opus-5.5 on
+		// Pin the gateway terms the ladder prices against: 2x opus-5.5 on
 		// cache-read (why it is not the strong tier).
 		expect(astra.cost).toEqual({
-			input: 10,
-			output: 50,
-			cacheRead: 1,
-			cacheWrite: 12.5,
-			tiers: [{ inputTokensAbove: 272_000, input: 20, output: 75, cacheRead: 2, cacheWrite: 25 }],
+			input: 8,
+			output: 40,
+			cacheRead: 0.4,
+			cacheWrite: 10,
+			tiers: [{ inputTokensAbove: 272_000, input: 16, output: 60, cacheRead: 0.8, cacheWrite: 20 }],
 		});
 		expect(astra.contextWindow).toBeGreaterThanOrEqual(1_000_000);
 	});

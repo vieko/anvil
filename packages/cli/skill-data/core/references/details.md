@@ -84,8 +84,8 @@ base is `sonnet` at `high` effort, so the default ladder is
 
 `haiku` / `sonnet` / `opus` / `fable` resolve to current Anthropic models
 (`opus` is Claude Opus 5.5, the default strong tier; `fable` is an opt-in
-strong base), `astra` to GPT-6 Astra (an opt-in strong base for jobs that want
-1M+ context or OpenAI's strengths), `sol` to GPT-6 Sol (sonnet's price on
+strong base), `astra` to GPT-6.2 Astra (an opt-in strong base for jobs that want
+1M+ context or OpenAI's strengths), `sol` to GPT-6.2 Sol (sonnet's price on
 OpenAI's route), and `luna` / `terra` / `glm` to budget-tier OpenAI/Z.ai
 models, all through the Vercel AI Gateway (one key, `AI_GATEWAY_API_KEY`). Or
 pass a concrete `provider:model-id`. The default model is `sonnet` (at `high`

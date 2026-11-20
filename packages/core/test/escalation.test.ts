@@ -72,6 +72,7 @@ describe("buildEscalationLadder", () => {
 	it("treats sol as weak-tier (sonnet's rung price on OpenAI's route): sol@high -> sol@xhigh -> opus@high", () => {
 		expect(DEFAULT_WEAK_TIER.test("sol")).toBe(true);
 		expect(DEFAULT_WEAK_TIER.test("openai/gpt-6.1-sol")).toBe(true);
+		expect(DEFAULT_WEAK_TIER.test("openai/gpt-6.2-sol")).toBe(true);
 		expect(DEFAULT_WEAK_TIER.test("openai/gpt-6-luna")).toBe(true);
 		expect(buildEscalationLadder({ model: "sol", effort: "high" })).toEqual([
 			{ model: "sol", effort: "high" },
@@ -123,6 +124,7 @@ describe("buildEscalationLadder", () => {
 	it("treats astra as a strong base (not weak-tier) that is not the default strong tier", () => {
 		expect(DEFAULT_WEAK_TIER.test("astra")).toBe(false);
 		expect(DEFAULT_WEAK_TIER.test("openai/gpt-6-astra")).toBe(false);
+		expect(DEFAULT_WEAK_TIER.test("openai/gpt-6.2-astra")).toBe(false);
 		expect(DEFAULT_STRONG_MODEL).toBe("opus");
 		expect(buildEscalationLadder({ model: "astra", effort: "high" })).toEqual([
 			{ model: "astra", effort: "high" },
