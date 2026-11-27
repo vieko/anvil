@@ -37,16 +37,14 @@ export const EFFORT_LADDER: readonly Effort[] = ["low", "medium", "high", "xhigh
 /**
  * Default strong tier anvil escalates a weak base up to. Caller can override.
  *
- * Opus 5.5 over Fable: on anvil's observed token profile the strong rung's
- * spend is ~98% prompt-cache reads, and opus-5.5 undercuts fable-5.1 on
- * cache-read (0.20 vs 0.25), cache-write (5 vs 12.5) and output (20 vs 50).
- * Fable 5.2 only closes the cache-read gap (0.20 each; write 10, output 40),
- * so the strong rung is the cheaper model with no capability tradeoff
- * argument in fable's favor (repricing 30 days of fable:high attempts on
- * opus-5.5: $140 against $291 actual). Fable stays a strong base (not
- * weak-tier): a `fable` base climbs effort on fable and never switches.
+ * Fable 5.2 over Opus 5.5 (2026-11-27, quality first): on the ledger's 185
+ * runs, fable:high rescued 16 of 19 escalations and opus:high 1 of 6. Fable
+ * costs more per token (cache read 0.20 each, write 10 vs 5, output 40 vs
+ * 20), but a strong rung that fails spends its attempt and the run's
+ * verdict. Opus stays a strong base (not weak-tier): an `opus` base climbs
+ * effort on opus and never switches.
  */
-export const DEFAULT_STRONG_MODEL = "opus";
+export const DEFAULT_STRONG_MODEL = "fable";
 
 /** Default weak-tier matcher: cheaper/smaller models that should escalate. */
 export const DEFAULT_WEAK_TIER = /sonnet|haiku|mini|flash|small|lite|nano|luna|sol|terra|glm/i;

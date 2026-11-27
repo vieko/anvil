@@ -301,7 +301,7 @@ describe("createModelResolver", () => {
 		for (const rung of ladder) {
 			expect(() => resolve(rung)).not.toThrow();
 		}
-		expect(ladder.at(-1)?.model).toBe("opus");
+		expect(ladder.at(-1)?.model).toBe("fable");
 		expect(DEFAULT_MODEL_ALIASES.sonnet).toContain("claude-sonnet");
 		expect(DEFAULT_MODEL_ALIASES.opus).toContain("claude-opus-5.5");
 	});
@@ -535,7 +535,7 @@ describe("createSupportedEfforts", () => {
 		const h45 = "vercel-ai-gateway:anthropic/claude-haiku-4.5";
 		expect(buildEscalationLadder({ model: h45, effort: "max" }, { supportedEfforts: supported })).toEqual([
 			{ model: h45, effort: "high" },
-			{ model: "opus", effort: "max" },
+			{ model: "fable", effort: "max" },
 		]);
 	});
 
